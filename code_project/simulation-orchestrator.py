@@ -7,9 +7,9 @@ from dataclasses import dataclass, asdict
 import logging
 from datetime import datetime
 
-from interfaces import DynamicSystem, Controller, RLAgent, Environment, RewardFunction, MetricsCollector
-from factories import ComponentRegistry
-from configuration import ConfigurationManager, ValidationResult
+from code_project.base_interfaces import DynamicSystem, Controller, RLAgent, Environment, RewardFunction, MetricsCollector
+from code_project.factories import ComponentRegistry
+from code_project.config_system import ConfigurationManager, ValidationResult
 
 @dataclass
 class SimulationMetrics:
