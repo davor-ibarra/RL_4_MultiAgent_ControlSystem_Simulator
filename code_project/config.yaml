@@ -47,15 +47,15 @@ environment:
       use_learning_rate_decay: true # Enable/disable learning rate decay
       # Agent State Discretization Configuration
       state_config:
-        # Base State Variables
-        angle:                   {enabled: false, min: -0.0349, max: 0.0349, bins: 3}
-        angular_velocity:        {enabled: false, min: -0.61, max: 0.61, bins: 6}
+        # Base Gain State Variables
+        kp:                      {enabled: true, min: 0.0, max: 100.0, bins: 21, state_vars: ['ki', 'kd']} # state_vars: ['angle','angular_velocity','ki', etc.]
+        ki:                      {enabled: false, min: 0.0, max: 100.0, bins: 21, state_vars: []}
+        kd:                      {enabled: false, min: 0.0, max: 100.0, bins: 21, state_vars: []}
+        # Additional State Variables
+        angle:                   {enabled: false, min: -0.03491, max: 0.03491, bins: 3}
+        angular_velocity:        {enabled: false, min: -0.5, max: 0.5, bins: 3}
         cart_position:           {enabled: false, min: -1.0, max: 1.0, bins: 3}
         cart_velocity:           {enabled: false, min: -1.0, max: 1.0, bins: 3}
-        # Gain State Variables
-        kp:                      {enabled: true, min: 0.0, max: 100.0, bins: 21}
-        ki:                      {enabled: true, min: 0.0, max: 100.0, bins: 21}
-        kd:                      {enabled: true, min: 0.0, max: 100.0, bins: 21}
 
   # --- Reward Configuration ---
   reward_setup:
@@ -63,31 +63,30 @@ environment:
     # --- 1. Agent Learning Strategy Configuration ---
     # Defines how the reward R_learn used for the agent's update is derived.
     learning_strategy:
-      type: shadow_baseline # Type of learning strategy. Options: 'global', 'shadow_baseline', 'echo_baseline'
+      type: echo_baseline # Type of learning strategy. Options: 'global', 'shadow_baseline', 'echo_baseline'
       # Parameters specific to the chosen strategy:
       strategy_params:
+        global: {}
+        echo_baseline: {}
         shadow_baseline: # Used if type is 'shadow_baseline'
           beta: 0.2 # Learning rate for the baseline B(s) update
           baseline_init_value: 0.0 # Initial value for B(s) entries
-        echo_baseline: # Used if type is 'echo_baseline'
-          # No specific parameters needed currently for Echo Baseline itself. Note: Echo Baseline requires a VirtualSimulator to be available.
-          pass
 
     # --- 2. Reward Calculation Configuration ---
     # Defines how the instantaneous reward R(s,a,s') is calculated per step.
     calculation:
-      method: stability_calculator # Method for reward calculation. Options: 'gaussian', 'stability_calculator'
+      method: gaussian # Method for reward calculation. Options: 'gaussian', 'stability_calculator'
       gaussian_params: # Used if method is 'gaussian'
         weights:
           angle: 1.0
-          angular_velocity: 1.0
+          angular_velocity: 0.5
           cart_position: 0.0
           cart_velocity: 0.5
           force: 0.5
           time: 0.0
         scales:
           angle: 0.1
-          angular_velocity: 0.5
+          angular_velocity: 0.1
           cart_position: 1.0
           cart_velocity: 1.0
           force: 10.0
@@ -96,38 +95,38 @@ environment:
 
     # --- 3. Stability Score (w_stab) Configuration ---
     # Defines how the instantaneous stability score (w_stab) is calculated.
-    stability_calculator:
-      enabled: true # Calculate w_stab? (Required if learning_strategy.type is 'shadow_baseline')
-      type: simple_exponential # Type of stability calculator. Options: 'ira_instantaneous', 'simple_exponential'
-      simple_exponential_params: # Used if type is 'simple_exponential'
-      # Note: This calculator does not have a separate lambda for reward. If calculation.method is 'stability_calculator' with this type, the reward will be equal to w_stab.
-        lambda_weights: # Used for w_stab calculation
-            angle: 1.0
-            angular_velocity: 1.0
-            cart_position: 0.0
-            cart_velocity: 0.5
-        scales: # Used for w_stab calculation
+      stability_calculator:
+        enabled: true # Calculate w_stab? (Required if learning_strategy.type is 'shadow_baseline')
+        type: simple_exponential # Type of stability calculator. Options: 'ira_instantaneous', 'simple_exponential'
+        simple_exponential_params: # Used if type is 'simple_exponential'
+        # Note: This calculator does not have a separate lambda for reward. If calculation.method is 'stability_calculator' with this type, the reward will be equal to w_stab.
+          lambda_weights: # Used for w_stab calculation
+              angle: 1.0
+              angular_velocity: 1.0
+              cart_position: 0.0
+              cart_velocity: 0.5
+          scales: # Used for w_stab calculation
+              angle: 0.1
+              angular_velocity: 0.1
+              cart_position: 1.0
+              cart_velocity: 1.0
+        ira_params: # Used if type is 'ira_instantaneous'
+          lambda: 1.0 # lambda: Sensitivity factor ONLY used if calculation.method is 'stability_calculator'
+          weights:
             angle: 0.1
-            angular_velocity: 0.5
-            cart_position: 1.0
-            cart_velocity: 1.0
-      ira_params: # Used if type is 'ira_instantaneous'
-        lambda: 1.0 # lambda: Sensitivity factor ONLY used if calculation.method is 'stability_calculator'
-        weights:
-          angle: 1.0
-          angular_velocity: 1.0
-          cart_position: 0.0
-          cart_velocity: 0.0
-        z_score_epsilon: 1.0e-6
-        adaptive_stats:
-          enabled: false
-          min_episode: 1000
-          min_sigma: 1.0e-4
-        initial_reference_stats:
-          angle:            { mu: 0.0, sigma: 0.05 }
-          angular_velocity: { mu: 0.0, sigma: 0.05 }
-          cart_position:    { mu: 0.0, sigma: 0.5 }
-          cart_velocity:    { mu: 0.0, sigma: 0.5 }
+            angular_velocity: 0.1
+            cart_position: 0.0
+            cart_velocity: 0.0
+          z_score_epsilon: 1.0e-6
+          adaptive_stats:
+            enabled: false
+            min_episode: 1000
+            min_sigma: 1.0e-4
+          initial_reference_stats:
+            angle:            { mu: 0.0, sigma: 0.05 }
+            angular_velocity: { mu: 0.0, sigma: 0.05 }
+            cart_position:    { mu: 0.0, sigma: 0.5 }
+            cart_velocity:    { mu: 0.0, sigma: 0.5 }
 
   # --- End of Reward Configuration ---
 
@@ -180,7 +179,7 @@ logging:
   filename: log_simulation_run.log      # Base name for the log file (will be placed in results folder)
   # List of levels to include in the file (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)
   # The lowest level specified determines the overall minimum level processed.
-  levels: # [DEBUG, INFO, WARNING, ERROR, CRITICAL]
+  levels: #[DEBUG, INFO, ERROR, CRITICAL]
   # How often (in episodes) to save the current log buffer to the file and clear the buffer
   # Set to 0 or negative to only save at the very end.
   log_save_frequency: 100

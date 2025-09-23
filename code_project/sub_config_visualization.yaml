@@ -131,11 +131,14 @@ plots:
   # --- Example Heatmap (Time vs Angle) ---
   - type: heatmap
     enabled: true
+    name: "heatmap_time_vs_pendulum_angle"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: pendulum_angle
+    value_variable: time # Variable con la que se calcula el aggregation
     output_filename: fig5_heatmap_time_vs_pendulum_angle.png
     config:
+      aggregation: count # mean, max, min, etc...
       title: Heatmap - Time vs Pendulum Angle
       title_fontsize: 18
       figsize_w: 14
@@ -144,18 +147,18 @@ plots:
       xlabel_fontsize: 16
       ylabel: Pendulum Angle [rad]
       ylabel_fontsize: 16
-      xmin: null
-      xmax: null
+      xmin: 0
+      xmax: 5
       ymin: -0.1
       ymax: 0.1
       tick_fontsize: 14
       xtick_rotation: 30
-      num_xticks: null
-      num_yticks: null
+      num_xticks: 5
+      num_yticks: 5
       clabel: Frequency # Colorbar label
       clabel_fontsize: 14
       cmin: null
-      cmax: null #10000
+      cmax: 10000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
       bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
@@ -164,11 +167,14 @@ plots:
   # --- Example Heatmap (Time vs Angle) stabilized ---
   - type: heatmap
     enabled: true
+    name: "heatmap_time_vs_pendulum_angle(stabilized)"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: pendulum_angle
+    value_variable: time # Variable con la que se calcula el aggregation
     output_filename: fig6_heatmap_time_vs_pendulum_angle(stabilized).png
     config:
+      aggregation: count # mean, max, min, etc...
       title: Heatmap - Time vs Pendulum Angle (stabilized)
       title_fontsize: 18
       figsize_w: 14
@@ -177,14 +183,14 @@ plots:
       xlabel_fontsize: 16
       ylabel: Pendulum Angle [rad]
       ylabel_fontsize: 16
-      xmin: null
-      xmax: null
+      xmin: 0
+      xmax: 5
       ymin: null
       ymax: null
       tick_fontsize: 14
       xtick_rotation: 30
-      num_xticks: null
-      num_yticks: null
+      num_xticks: 5
+      num_yticks: 5
       clabel: Frequency # Colorbar label
       clabel_fontsize: 14
       cmin: null
@@ -197,11 +203,14 @@ plots:
   # --- Example Heatmap (Time vs  Angular Velocity) ---
   - type: heatmap
     enabled: true
+    name: "heatmap_time_vs_pendulum_velocity"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: pendulum_velocity
+    value_variable: time # Variable con la que se calcula el aggregation
     output_filename: fig7_heatmap_time_vs_pendulum_velocity.png
     config:
+      aggregation: count # mean, max, min, etc...
       title: Heatmap - Time vs Angular Velocity
       title_fontsize: 18
       figsize_w: 14
@@ -210,18 +219,18 @@ plots:
       xlabel_fontsize: 16
       ylabel: Pendulum Velocity (rad/s)
       ylabel_fontsize: 16
-      xmin: null
-      xmax: null
-      ymin: -1
-      ymax: 1
+      xmin: 0
+      xmax: 5
+      ymin: -0.1
+      ymax: 0.1
       tick_fontsize: 14
       xtick_rotation: 30
-      num_xticks: null 
-      num_yticks: null
+      num_xticks: 5 
+      num_yticks: 5
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
-      cmax: null
+      cmax: 5000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
       bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
@@ -230,15 +239,18 @@ plots:
   # --- Example Heatmap (Angle vs Angular Velocity) ---
   - type: heatmap
     enabled: true
+    name: "heatmap_pendulum_angle_vs_pendulum_velocity"
     source: detailed
     x_variable: pendulum_angle
     y_variable: pendulum_velocity
+    value_variable: pendulum_angle # Variable con la que se calcula el aggregation
     output_filename: fig8_heatmap_pendulum_angle_vs_pendulum_velocity.png
     config:
+      aggregation: count # mean, max, min, etc...
       title: Heatmap - Angle vs Angular Velocity
       title_fontsize: 18
-      figsize_w: 16
-      figsize_h: 12
+      figsize_w: 14
+      figsize_h: 10
       xlabel: Pendulum Angle (rad)
       xlabel_fontsize: 16
       ylabel: Pendulum Velocity (rad/s)
@@ -249,12 +261,12 @@ plots:
       ymax: 0.1
       tick_fontsize: 14
       xtick_rotation: 30
-      num_xticks: null
-      num_yticks: null
+      num_xticks: 5
+      num_yticks: 5
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
-      cmax: null #500
+      cmax: 1000
       cmap: hot
       bins: 1000
       log_scale: false
@@ -263,11 +275,14 @@ plots:
   # --- Example Heatmap (Time vs Cart Position) ---
   - type: heatmap
     enabled: true
+    name: "heatmap_time_vs_cart_position"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: cart_position
+    value_variable: time # Variable con la que se calcula el aggregation
     output_filename: fig9_heatmap_time_vs_cart_position.png
     config:
+      aggregation: count # mean, max, min, etc...
       title: Heatmap - Time vs Cart Position
       title_fontsize: 18
       figsize_w: 14
@@ -276,18 +291,18 @@ plots:
       xlabel_fontsize: 16
       ylabel: Cart Position (m)
       ylabel_fontsize: 16
-      xmin: null
-      xmax: null
-      ymin: -5.0
-      ymax: 5.0
+      xmin: 0
+      xmax: 5
+      ymin: -3.0
+      ymax: 3.0
       tick_fontsize: 14
       xtick_rotation: 30
-      num_xticks: null
-      num_yticks: null
+      num_xticks: 5
+      num_yticks: 6
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
-      cmax: null #5000
+      cmax: 5000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
       bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
@@ -296,11 +311,14 @@ plots:
   # --- Example Heatmap (Time vs Cart Position) stabilized ---
   - type: heatmap
     enabled: true
+    name: "heatmap_time_vs_cart_position(stabilized)"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: cart_position
+    value_variable: time # Variable con la que se calcula el aggregation
     output_filename: fig10_heatmap_time_vs_cart_position(stabilized).png
     config:
+      aggregation: count # mean, max, min, etc...
       title: Heatmap - Time vs Cart Position (stabilized)
       title_fontsize: 18
       figsize_w: 14
@@ -309,14 +327,14 @@ plots:
       xlabel_fontsize: 16
       ylabel: Cart Position (m)
       ylabel_fontsize: 16
-      xmin: null
-      xmax: null
+      xmin: 0
+      xmax: 5
       ymin: null
       ymax: null
       tick_fontsize: 14
       xtick_rotation: 30
-      num_xticks: null
-      num_yticks: null
+      num_xticks: 5
+      num_yticks: 5
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
@@ -329,11 +347,14 @@ plots:
   # --- Example Heatmap (Time vs Cart Velocity) ---
   - type: heatmap
     enabled: true
+    name: "heatmap_time_vs_cart_velocity"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: cart_velocity
+    value_variable: time # Variable con la que se calcula el aggregation
     output_filename: fig11_heatmap_time_vs_cart_velocity.png
     config:
+      aggregation: count # mean, max, min, etc...
       title: Heatmap - Time vs Cart Velocity
       title_fontsize: 18
       figsize_w: 14
@@ -342,18 +363,18 @@ plots:
       xlabel_fontsize: 16
       ylabel: Cart Velocity (m/s)
       ylabel_fontsize: 16
-      xmin: null
-      xmax: null
-      ymin: -6.0
-      ymax: 6.0
+      xmin: 0
+      xmax: 5
+      ymin: -1.0
+      ymax: 1.0
       tick_fontsize: 14
       xtick_rotation: 30
-      num_xticks: null
-      num_yticks: null
+      num_xticks: 5
+      num_yticks: 5
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
-      cmax: null #5000
+      cmax: 5000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
       bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
@@ -362,11 +383,14 @@ plots:
   # --- Example Heatmap (Time vs Force) ---
   - type: heatmap
     enabled: true
+    name: "heatmap_time_vs_force"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: force
+    value_variable: time # Variable con la que se calcula el aggregation
     output_filename: fig12_heatmap_time_vs_force.png
     config:
+      aggregation: count # mean, max, min, etc...
       title: Heatmap - Time vs Force
       title_fontsize: 18
       figsize_w: 14
@@ -375,18 +399,18 @@ plots:
       xlabel_fontsize: 16
       ylabel: Force (N)
       ylabel_fontsize: 16
-      xmin: null
-      xmax: null
-      ymin: -45.0
-      ymax: 45.0
+      xmin: 0
+      xmax: 5
+      ymin: -10.0
+      ymax: 10.0
       tick_fontsize: 14
       xtick_rotation: 30
-      num_xticks: null
-      num_yticks: null
+      num_xticks: 5
+      num_yticks: 5
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
-      cmax: null #10000
+      cmax: 10000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
       bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
@@ -395,11 +419,14 @@ plots:
   # --- Example Heatmap (Time vs Force) stabilized ---
   - type: heatmap
     enabled: true
+    name: "heatmap_time_vs_force(stabilized)"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: force
+    value_variable: time # Variable con la que se calcula el aggregation
     output_filename: fig13_heatmap_time_vs_force(stabilized).png
     config:
+      aggregation: count # mean, max, min, etc...
       title: Heatmap - Time vs Force (stabilized)
       title_fontsize: 18
       figsize_w: 14
@@ -408,20 +435,20 @@ plots:
       xlabel_fontsize: 16
       ylabel: Force (N)
       ylabel_fontsize: 16
-      xmin: null
-      xmax: null
-      ymin: -8.0
-      ymax: 8.0
+      xmin: 0
+      xmax: 5
+      ymin: -10.0
+      ymax: 10.0
       tick_fontsize: 14
       xtick_rotation: 30
-      num_xticks: null
-      num_yticks: null
+      num_xticks: 5
+      num_yticks: 5
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
       cmax: null
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 2000 # Number of bins for histogram2d
+      bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
       filter_termination_reason: ['stabilized']

@@ -1,85 +1,82 @@
+# factories/controller_factory.py
 import logging
 from typing import Dict, Any
 
 # Import interfaces and specific controller implementations
 from interfaces.controller import Controller
 from components.controllers.pid_controller import PIDController
-# Import other controller classes here if you add them, e.g.:
-# from components.controllers.lqr_controller import LQRController
+# Import other controller classes here
 
-# Obtener logger específico para este módulo
+# 11.1: Usar logger específico del módulo
 logger = logging.getLogger(__name__)
 
 class ControllerFactory:
     """
-    Factory class (as a service) for creating controller instances.
-    Instances of this factory will be registered in the DI container.
+    Factory service for creating controller instances.
+    Ensures required parameters, including 'dt', are provided.
     """
     def __init__(self):
-        """Constructor (puede estar vacío si la fábrica no necesita dependencias)."""
         logger.info("ControllerFactory instance created.")
         pass
 
     def create_controller(self, controller_type: str, controller_params: Dict[str, Any]) -> Controller:
         """
-        Creates a controller instance based on the specified type and parameters.
-        This is now an instance method.
+        Creates a controller instance based on type and parameters.
 
         Args:
-            controller_type (str): The type of controller to create (e.g., 'pid').
-            controller_params (Dict[str, Any]): Dictionary containing parameters needed by the
-                                                 controller's constructor (e.g., kp, ki, kd, setpoint, dt).
-                                                 The DI container's lambda provider ensures 'dt' is included.
+            controller_type (str): Type of controller (e.g., 'pid').
+            controller_params (Dict[str, Any]): Parameters for the constructor,
+                                                 MUST include 'dt' provided by DI.
 
         Returns:
             An instance of a Controller subclass.
 
         Raises:
-            ValueError: If the controller type is unknown or parameters are missing/invalid.
-            RuntimeError: For unexpected errors during creation.
+            ValueError: If type unknown or required parameters missing/invalid.
+            TypeError: If parameter types are incorrect.
+            RuntimeError: For unexpected errors.
         """
         logger.info(f"Attempting to create controller of type: {controller_type}")
+        logger.debug(f"Controller params received by factory (keys): {list(controller_params.keys())}")
         controller: Controller # Type hint
 
         try:
             if controller_type == 'pid':
-                # Check for required parameters for PIDController
-                # 'dt' MUST now be present in controller_params due to DI lambda adjustment.
+                # 11.2: Validar presencia de claves *esenciales* para PID, incluyendo 'dt'
                 required_keys = ['kp', 'ki', 'kd', 'setpoint', 'dt']
                 missing_keys = [key for key in required_keys if key not in controller_params]
                 if missing_keys:
-                     # No need for the temporary fallback for 'dt' anymore.
-                     raise ValueError(f"Missing required parameters {missing_keys} for 'pid' controller. Check DI registration lambda and config.")
+                    # Fail-Fast si falta algo esencial
+                    raise ValueError(f"Missing required parameters {missing_keys} for 'pid' controller in controller_params.")
 
-                # Parameters seem valid, create the instance using dictionary unpacking
+                # 11.3: Crear instancia usando desempaquetado (**), asumiendo que PIDController acepta estos args
                 logger.debug(f"Creating PIDController with params: {controller_params}")
                 controller = PIDController(**controller_params)
 
             # --- Add other controller types here ---
             # elif controller_type == 'lqr':
-            #     # Ensure LQRController specific params are present
-            #     required_lqr_keys = [...] # Define required keys for LQR
-            #     missing_keys = [key for key in required_lqr_keys if key not in controller_params]
-            #     if missing_keys:
-            #          raise ValueError(f"Missing required LQR parameters: {missing_keys}")
-            #     logger.debug(f"Creating LQRController with params: {controller_params}")
+            #     required_lqr_keys = [...]
+            #     missing_keys = [...]
+            #     if missing_keys: raise ValueError(...)
             #     controller = LQRController(**controller_params)
 
             else:
+                # Fail-Fast si el tipo es desconocido
                 raise ValueError(f"Unknown controller type specified: {controller_type}")
 
             logger.info(f"Successfully created controller: {type(controller).__name__}")
             return controller
 
-        except KeyError as e:
-             logger.error(f"Unexpected KeyError during controller creation '{controller_type}': {e}", exc_info=True)
-             raise ValueError(f"Configuration error: Missing parameter for controller '{controller_type}'") from e
-        except ValueError as e: # Catch ValueErrors from checks or unknown type
-             logger.error(f"Configuration or parameter error for controller '{controller_type}': {e}", exc_info=True)
-             raise
-        except TypeError as e:
-             logger.error(f"Type error creating controller '{controller_type}'. Check parameter types in config: {e}", exc_info=True)
-             raise ValueError(f"Parameter type mismatch for controller '{controller_type}'.") from e
+        # 11.4: Capturar errores específicos y relanzar
+        except TypeError as e: # Error si los tipos de params no coinciden con el constructor
+            logger.error(f"Type error creating controller '{controller_type}'. Check config param types: {e}", exc_info=True)
+            raise TypeError(f"Parameter type mismatch for controller '{controller_type}': {e}") from e
+        except KeyError as e: # Error si el constructor espera una clave no presente en **controller_params
+            logger.error(f"Missing parameter key expected by controller '{controller_type}' constructor: {e}", exc_info=True)
+            raise ValueError(f"Internal config error: Missing key '{e}' for controller '{controller_type}'.") from e
+        except ValueError as e: # Captura errores de validación o tipo desconocido
+            logger.error(f"Configuration or parameter error for controller '{controller_type}': {e}", exc_info=True)
+            raise # Re-raise known config/value errors (Fail-Fast)
         except Exception as e:
-            logger.error(f"Failed to create controller of type '{controller_type}': {e}", exc_info=True)
+            logger.error(f"Unexpected error creating controller '{controller_type}': {e}", exc_info=True)
             raise RuntimeError(f"Unexpected error creating controller '{controller_type}'") from e

@@ -1,4 +1,3 @@
-# components/rewards/instantaneous_reward_calculator.py
 import numpy as np
 import pandas as pd
 import math
@@ -7,171 +6,207 @@ from typing import Tuple, Any, Optional, Dict
 from interfaces.reward_function import RewardFunction # Importar Interfaz
 from interfaces.stability_calculator import BaseStabilityCalculator # Importar interfaz base
 
-# Obtener logger específico para este módulo
+# 7.1: Usar logger específico del módulo
 logger = logging.getLogger(__name__)
 
 class InstantaneousRewardCalculator(RewardFunction): # Implementar Interfaz RewardFunction
     """
-    Calculates the instantaneous reward R(s,a,s') and the stability score w_stab per step.
-    The reward calculation method ('gaussian' or 'stability_calculator') is determined by config.
-    The stability score w_stab is always calculated if a StabilityCalculator is provided.
+    Calcula recompensa instantánea R y estabilidad w_stab. Implementa RewardFunction.
+    Usa un método de cálculo ('gaussian' o 'stability_calculator') y opcionalmente
+    un StabilityCalculator inyectado.
     """
     def __init__(self,
                  calculation_config: Dict[str, Any], # Config de reward_setup.calculation
-                 stability_calculator: Optional[BaseStabilityCalculator] = None # Dependencia Inyectada
+                 stability_calculator: Optional[BaseStabilityCalculator]
                  ):
         """
-        Initializes the instantaneous reward calculator.
+        Inicializa el calculador de recompensa instantánea.
 
         Args:
-            calculation_config (Dict[str, Any]): The 'calculation' section from config,
-                                                 must contain 'method' and relevant params
-                                                 (e.g., 'gaussian_params').
-            stability_calculator (Optional[BaseStabilityCalculator]): Injected stability
-                                       calculator instance (can be None).
+            calculation_config: Sección 'calculation' de la config.
+            stability_calculator: Instancia opcional de StabilityCalculator inyectada.
+
+        Raises:
+            ValueError: Si la configuración es inválida o falta 'method'.
+            TypeError: Si los tipos en config son incorrectos.
+            AttributeError: Si stability_calculator es requerido pero inválido.
+            RuntimeError: Por errores inesperados.
         """
-        logger.info("Initializing InstantaneousRewardCalculator...")
+        logger.info("Inicializando InstantaneousRewardCalculator...")
         try:
-            # --- Store Dependencies and Process Config ---
+            # --- Validar y Almacenar Dependencias/Config ---
+            # 7.2: Validar stability_calculator si se proporciona (tipo ya validado por DI)
+            if stability_calculator is not None and not isinstance(stability_calculator, BaseStabilityCalculator):
+                 # Este check es redundante si DI funciona, pero por seguridad
+                 raise TypeError("stability_calculator debe implementar BaseStabilityCalculator")
             self.stability_calculator = stability_calculator
+
+            if not isinstance(calculation_config, dict):
+                 raise ValueError("calculation_config debe ser un diccionario.")
             self.calculation_config = calculation_config
             self.method = calculation_config.get('method')
-
             if not self.method:
-                raise ValueError("Missing 'method' in calculation_config.")
+                raise ValueError("Falta 'method' en calculation_config.") # Fail-Fast
+            logger.info(f"InstantaneousRewardCalculator modo: {self.method}")
 
-            logger.info(f"InstantaneousRewardCalculator mode: {self.method}")
-
-            # --- Gaussian Mode Specifics ---
+            # --- Configuración Específica por Método ---
+            # 7.3: Limpiar atributos no usados por el método seleccionado
             self.gaussian_params = {}
             self.weights = {}
             self.scales = {}
             self.state_indices = {}
-            self.required_gaussian_keys = []
+
             if self.method == 'gaussian':
                 self.gaussian_params = calculation_config.get('gaussian_params', {})
                 if not isinstance(self.gaussian_params, dict):
-                     raise TypeError("gaussian_params must be a dictionary for method 'gaussian'.")
-                self.weights = self.gaussian_params.get('weights', {})
-                self.scales = self.gaussian_params.get('scales', {})
-                self.state_indices = { # Hardcoded for pendulum, make dynamic if needed
-                    'cart_position': 0, 'cart_velocity': 1,
-                    'angle': 2, 'angular_velocity': 3
-                }
-                self.required_gaussian_keys = list(self.state_indices.keys()) + ['force', 'time']
-                self._validate_gaussian_params() # Validate weights and scales
+                    raise TypeError("gaussian_params debe ser dict para method 'gaussian'.") # Fail-Fast
+                # Extraer y validar params gaussianos
+                self._load_and_validate_gaussian_params()
 
-            # --- Stability Calculator Mode Specifics ---
             elif self.method == 'stability_calculator':
                 if self.stability_calculator is None:
-                    msg = "CRITICAL: method='stability_calculator' selected, but no StabilityCalculator was provided!"
-                    logger.error(msg)
-                    raise ValueError(msg)
+                    # Fail-Fast si se requiere pero no se inyectó
+                    msg = "CRITICAL: method='stability_calculator' seleccionado, pero no se inyectó StabilityCalculator."
+                    logger.critical(msg); raise ValueError(msg)
+                # Validar que tenga el método necesario (ya hecho en RewardFactory, pero doble check)
                 if not hasattr(self.stability_calculator, 'calculate_stability_based_reward'):
-                    msg = f"CRITICAL: StabilityCalculator ({type(self.stability_calculator).__name__}) missing 'calculate_stability_based_reward' method."
-                    logger.error(msg)
-                    raise AttributeError(msg)
-                logger.info(f"Reward will be calculated by: {type(self.stability_calculator).__name__}")
+                    msg = f"CRITICAL: StabilityCalculator ({type(self.stability_calculator).__name__}) sin método 'calculate_stability_based_reward'."
+                    logger.critical(msg); raise AttributeError(msg)
+                logger.info(f"Recompensa será calculada por: {type(self.stability_calculator).__name__}")
 
             else:
-                raise ValueError(f"Unknown calculation method specified: {self.method}")
+                # Fail-Fast si el método es desconocido (ya validado en config_loader/factory)
+                raise ValueError(f"Método de cálculo desconocido: {self.method}")
 
-            # --- Validate w_stab calculation capability ---
+            # Validar capacidad de cálculo de w_stab (si calculator existe)
             if self.stability_calculator and not hasattr(self.stability_calculator, 'calculate_instantaneous_stability'):
-                 msg = f"CRITICAL: Provided StabilityCalculator ({type(self.stability_calculator).__name__}) missing 'calculate_instantaneous_stability' method."
-                 logger.error(msg)
-                 raise AttributeError(msg)
+                 msg = f"CRITICAL: StabilityCalculator inyectado ({type(self.stability_calculator).__name__}) sin método 'calculate_instantaneous_stability'."
+                 logger.critical(msg); raise AttributeError(msg)
             elif self.stability_calculator is None:
-                 logger.warning("InstantaneousRewardCalculator: No StabilityCalculator provided. w_stab will default to 1.0.")
+                 logger.info("No se proporcionó StabilityCalculator. w_stab será 1.0.")
 
-        except Exception as e:
-            logger.error(f"InstantaneousRewardCalculator: Error during initialization: {e}", exc_info=True)
-            raise RuntimeError("Failed to initialize InstantaneousRewardCalculator") from e
+            logger.info("InstantaneousRewardCalculator inicializado.")
 
-    def _validate_gaussian_params(self):
-        """Validates weights and scales for Gaussian mode."""
-        logger.debug("Validating parameters for Gaussian reward calculation...")
+        except (ValueError, TypeError, AttributeError, KeyError) as e:
+            logger.critical(f"Error crítico inicializando InstantaneousRewardCalculator: {e}", exc_info=True)
+            raise RuntimeError("Fallo al inicializar InstantaneousRewardCalculator") from e # Fail-Fast
+
+    def _load_and_validate_gaussian_params(self):
+        """Carga y valida parámetros para el modo Gaussiano."""
+        #logger.debug("Cargando y validando parámetros Gaussianos...")
+        self.weights = self.gaussian_params.get('weights', {})
+        self.scales = self.gaussian_params.get('scales', {})
+        if not isinstance(self.weights, dict): raise TypeError("gaussian_params.weights debe ser dict.")
+        if not isinstance(self.scales, dict): raise TypeError("gaussian_params.scales debe ser dict.")
+
+        self.state_indices = {'cart_position': 0, 'cart_velocity': 1, 'angle': 2, 'angular_velocity': 3}
+        # Claves requeridas para pesos y escalas
+        required_keys = list(self.state_indices.keys()) + ['force', 'time']
+
         valid = True
-        for key in self.required_gaussian_keys:
-            # Validate Weight
-            if key not in self.weights:
-                logger.warning(f"Gaussian Mode: Missing weight for '{key}'. Using 0.0.")
-                self.weights[key] = 0.0
-            elif not isinstance(self.weights[key], (int, float)):
-                logger.error(f"Gaussian Mode: Weight for '{key}' ({self.weights[key]}) is not numeric. Invalid config.")
-                self.weights[key] = 0.0
-                valid = False
-            # Validate Scale
-            if key not in self.scales:
-                logger.warning(f"Gaussian Mode: Missing scale for '{key}'. Using 1.0.")
-                self.scales[key] = 1.0
-            elif not isinstance(self.scales[key], (int, float)) or self.scales[key] <= 0:
-                logger.error(f"Gaussian Mode: Scale for '{key}' ({self.scales[key]}) must be a positive number. Invalid config.")
-                self.scales[key] = 1.0
-                valid = False
-        if not valid:
-            raise ValueError("Invalid parameters found in gaussian_params configuration.")
+        # Validar pesos (default 0)
+        for key in required_keys:
+            w = self.weights.get(key, 0.0)
+            if not isinstance(w, (int, float)):
+                logger.error(f"Gaussian: Peso para '{key}' ({w}) no numérico. Usando 0.0.")
+                self.weights[key] = 0.0; valid = False
+            else: self.weights[key] = float(w)
+        # Validar escalas (default 1, debe ser > 0)
+        for key in required_keys:
+            s = self.scales.get(key, 1.0)
+            if not isinstance(s, (int, float)) or s <= 0:
+                logger.error(f"Gaussian: Escala para '{key}' ({s}) debe ser número positivo. Usando 1.0.")
+                self.scales[key] = 1.0; valid = False
+            else: self.scales[key] = float(s)
 
-    # --- Implementation of RewardFunction Interface ---
+        if not valid:
+            raise ValueError("Parámetros inválidos encontrados en gaussian_params.")
+        #logger.debug(f"Params Gaussianos validados. Weights: {self.weights}, Scales: {self.scales}")
+
+
+    # --- Implementación de RewardFunction Interface ---
 
     def calculate(self, state: Any, action: Any, next_state: Any, t: float) -> Tuple[float, float]:
-        """Calculates reward_value and w_stab based on the configured method and stability calculator."""
+        """Calcula reward_value y w_stab."""
         stability_score = 1.0 # Default w_stab
         reward_value = 0.0    # Default reward
 
-        # 1. Calculate Stability Score (w_stab) if calculator is available
+        # 1. Calcular w_stab si es posible y está configurado
         if self.stability_calculator:
             try:
-                w_stab = self.stability_calculator.calculate_instantaneous_stability(next_state)
-                # Clip and handle NaN/inf
-                stability_score = float(np.clip(w_stab if pd.notna(w_stab) and np.isfinite(w_stab) else 0.0, 0.0, 1.0))
+                # Usar interfaz, asume que devuelve float
+                w_stab_calc = self.stability_calculator.calculate_instantaneous_stability(next_state)
+                # Asegurar valor finito y en [0, 1]
+                if pd.notna(w_stab_calc) and np.isfinite(w_stab_calc):
+                    stability_score = float(np.clip(w_stab_calc, 0.0, 1.0))
+                else:
+                    logger.warning(
+                        f"StabilityCalculator ({type(self.stability_calculator).__name__}) "
+                        f"devolvió w_stab inválido ({w_stab_calc}). Usando 0.0."
+                    )
+                    stability_score = 0.0
             except Exception as e:
-                logger.error(f"Error calculating w_stab from {type(self.stability_calculator).__name__}: {e}", exc_info=True)
-                stability_score = 0.0 # Default to 0 on error
+                logger.error(
+                    f"Error calculando w_stab desde {type(self.stability_calculator).__name__}: {e}",
+                    exc_info=True
+                )
+                stability_score = 0.0 # Default a 0 en error grave de cálculo de w_stab
+        # else: stability_score permanece 1.0 (default si no hay calculator)
 
-        # 2. Calculate Reward Value based on method
+        # 2. Calcular Reward Value según el método configurado
         try:
             if self.method == 'gaussian':
-                if not isinstance(next_state, (np.ndarray, list)) or len(next_state) < len(self.state_indices):
-                     raise IndexError(f"Invalid next_state format or length for Gaussian calculation: {next_state}")
+                # 7.4: Validar estado y acción
+                if not isinstance(next_state, (np.ndarray, list)) or len(next_state) < 4:
+                     logger.warning(f"Gaussian: next_state inválido o corto: {next_state}. Reward=0.")
+                     return 0.0, stability_score
+                if pd.isna(action) or not np.isfinite(action):
+                     logger.warning(f"Gaussian: action inválida (NaN/inf): {action}. Usando action=0 para reward.")
+                     action = 0.0
 
-                # Helper for safe exponentiation
+                # Helper exp seguro
                 def safe_exp(arg):
-                     try: return math.exp(-min(float(arg)**2, 700.0)) # Ensure arg is float
-                     except (OverflowError, ValueError, TypeError): return 0.0
+                    try: 
+                        return math.exp(-min(float(arg)**2, 700.0))
+                    except: return 0.0
 
-                # Calculate Gaussian terms
-                terms = {}
+                reward_calc = 0.0
+                # Términos de estado
                 for key, index in self.state_indices.items():
-                    terms[key] = safe_exp(next_state[index] / self.scales[key])
-                terms['force'] = safe_exp(float(action) / self.scales['force']) # Ensure action is float
-                terms['time'] = safe_exp(float(t) / self.scales['time'])     # Ensure time is float
+                    val = next_state[index]
+                    if pd.isna(val) or not np.isfinite(val): # Saltar si estado es inválido
+                        logger.warning(f"Gaussian: Valor inválido para '{key}' en next_state: {val}. Término será 0.")
+                        continue
+                    reward_calc += self.weights[key] * safe_exp(val / self.scales[key])
+                # Términos de acción y tiempo
+                reward_calc += self.weights['force'] * safe_exp(float(action) / self.scales['force'])
+                reward_calc += self.weights['time'] * safe_exp(float(t) / self.scales['time'])
 
-                # Weighted sum
-                reward_calc = sum(self.weights[key] * terms.get(key, 0.0) for key in self.required_gaussian_keys)
-                reward_value = float(reward_calc if pd.notna(reward_calc) and np.isfinite(reward_calc) else 0.0)
+                reward_value = float(reward_calc) if np.isfinite(reward_calc) else 0.0
 
             elif self.method == 'stability_calculator':
-                # Assumes stability_calculator is not None and has the method (validated in __init__)
-                reward_calc = self.stability_calculator.calculate_stability_based_reward(next_state) # type: ignore
-                reward_value = float(reward_calc if pd.notna(reward_calc) and np.isfinite(reward_calc) else 0.0)
+                if self.stability_calculator: # Re-chequear por si acaso, aunque init debería fallar
+                    reward_calc = self.stability_calculator.calculate_stability_based_reward(next_state) # type: ignore[union-attr]
+                    reward_value = float(reward_calc) if pd.notna(reward_calc) and np.isfinite(reward_calc) else 0.0
+                else:
+                    # Esto indica un error de configuración si se llega aquí
+                    logger.error("Método 'stability_calculator' pero no hay instancia de calculator. Reward=0.")
+                    reward_value = 0.0
+            # else: método desconocido ya manejado en init
 
-            # else: Handled in __init__
-
-        except IndexError as e: logger.error(f"Reward Calc ({self.method}): IndexError accessing state/action: {e}"); reward_value = 0.0
-        except KeyError as e: logger.error(f"Reward Calc ({self.method}): KeyError accessing scales/weights: {e}"); reward_value = 0.0
-        except TypeError as e: logger.error(f"Reward Calc ({self.method}): TypeError (likely invalid state/action value): {e}"); reward_value = 0.0
-        except Exception as e: logger.error(f"Reward Calc ({self.method}): Unexpected error: {e}", exc_info=True); reward_value = 0.0
+        except IndexError as e: logger.error(f"Reward Calc ({self.method}): IndexError acceso estado/acción: {e}"); reward_value = 0.0
+        except KeyError as e: logger.error(f"Reward Calc ({self.method}): KeyError acceso config (weights/scales): {e}"); reward_value = 0.0
+        except Exception as e: logger.error(f"Reward Calc ({self.method}): Error inesperado: {e}", exc_info=True); reward_value = 0.0
 
         # logger.debug(f"Calculate Result: Reward={reward_value:.4f}, Stability={stability_score:.4f}")
         return reward_value, stability_score
 
     def update_calculator_stats(self, episode_metrics_dict: Dict, current_episode: int):
-        """Delegates stats update to the stability calculator, if it exists and supports it."""
+        """Delega actualización de stats al stability calculator."""
         if self.stability_calculator and hasattr(self.stability_calculator, 'update_reference_stats'):
             try:
-                # logger.debug(f"Delegating update_stats to {type(self.stability_calculator).__name__}")
+                # logger.debug(f"Delegando update_stats a {type(self.stability_calculator).__name__}")
                 self.stability_calculator.update_reference_stats(episode_metrics_dict, current_episode)
             except Exception as e:
-                logger.error(f"Error calling update_reference_stats on calculator: {e}", exc_info=True)
-        # else: logger.debug("No stability calculator or it lacks update_reference_stats method.")
+                logger.error(f"Error llamando update_reference_stats en calculator: {e}", exc_info=True)
+        # else: logger.debug("No stability calculator or no update_reference_stats method.")

@@ -1,42 +1,44 @@
+# interfaces/reward_function.py
 from abc import ABC, abstractmethod
 from typing import Tuple, Any, Dict, Optional
 
+# 5.1: Interfaz sin cambios funcionales, docstrings mejorados.
 class RewardFunction(ABC):
     """
     Interface for reward calculation components.
-    Defines methods to calculate reward and stability, and potentially update internal stats.
+    Defines methods to calculate reward and stability per step, and update stats.
     """
 
     @abstractmethod
     def calculate(self, state: Any, action: Any, next_state: Any, t: float) -> Tuple[float, float]:
         """
-        Calculates the instantaneous reward and a stability score for the given transition.
+        Calculates the instantaneous reward value and a stability score (w_stab)
+        for the transition from `state` to `next_state` given `action` at time `t`.
 
-        The method for calculating the reward value depends on the configuration
-        (e.g., 'gaussian', 'stability_calculator').
+        The method for calculating the reward value depends on the implementing class's
+        configuration (e.g., 'gaussian' or using an injected 'stability_calculator').
 
-        The stability score (w_stab) is always calculated if a StabilityCalculator
-        component is provided during initialization, otherwise it defaults to 1.0.
+        The stability score (w_stab) should be calculated if a StabilityCalculator
+        component is available, otherwise it should default to a neutral value (e.g., 1.0).
 
         Args:
-            state: The state before the action was taken.
-            action: The action taken (e.g., force applied, agent's action choice).
-            next_state: The resulting state after the action was applied and dt passed.
-            t: The current simulation time.
+            state (Any): State before the action.
+            action (Any): Action taken (e.g., force).
+            next_state (Any): Resulting state after action and dt.
+            t (float): Current simulation time.
 
         Returns:
-            A tuple containing:
-            - reward_value (float): The calculated instantaneous reward value for this step.
-            - stability_score (float): A score indicating system stability (w_stab),
-                                       typically between 0 and 1. Defaults to 1.0 if no
-                                       StabilityCalculator is available or if calculation fails.
+            Tuple[float, float]: A tuple (reward_value, stability_score).
+                                 Values should be finite floats. Implementations should
+                                 handle internal errors and return defaults (e.g., 0.0, 1.0)
+                                 instead of raising exceptions for calculation issues.
         """
         pass
 
     @abstractmethod
     def update_calculator_stats(self, episode_metrics_dict: Dict, current_episode: int):
         """
-        Updates internal statistics of any components used by the reward function
+        Updates internal statistics of components used by the reward function
         (like an adaptive stability calculator), based on data from a completed episode.
         Implementations can leave this empty if no adaptive components are used.
 

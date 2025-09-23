@@ -1,6 +1,8 @@
+# interfaces/virtual_simulator.py
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Tuple
 
+# 9.1: Interfaz sin cambios funcionales, docstrings mejorados.
 class VirtualSimulator(ABC):
     """
     Interface for components that can run virtual simulations of an environment
@@ -13,24 +15,27 @@ class VirtualSimulator(ABC):
                                 initial_state_vector: Any,
                                 start_time: float,
                                 duration: float,
-                                controller_gains_dict: Dict[str, float]) -> float:
+                                controller_gains_dict: Dict[str, float]) -> Tuple[float, float]:
         """
         Runs a self-contained virtual simulation for a specified time interval
-        using a specific set of controller gains.
+        using a specific set of controller gains. Uses copies of the system,
+        controller, and reward function components internally.
 
         Args:
-            initial_state_vector: The starting state vector (e.g., numpy array)
-                                  for the virtual simulation.
-            start_time: The starting time (t) for the virtual simulation.
-            duration: The duration (e.g., decision_interval) of the virtual
-                      interval to simulate.
-            controller_gains_dict: A dictionary specifying the *fixed* PID gains
-                                   {'kp': value, 'ki': value, 'kd': value}
-                                   to be used *throughout* this specific virtual simulation run.
+            initial_state_vector (Any): Starting state vector (e.g., numpy array)
+                                        for the virtual simulation.
+            start_time (float): Starting time (t) for the virtual simulation.
+            duration (float): Duration (e.g., decision_interval) of the virtual
+                              interval to simulate.
+            controller_gains_dict (Dict[str, float]): Dictionary specifying the *fixed*
+                                                     PID gains {'kp': v, 'ki': v, 'kd': v}
+                                                     to be used *throughout* this virtual run.
 
         Returns:
-            float: The total accumulated reward calculated during the virtual simulation
-                   interval using the provided gains. Returns 0.0 or a default low value
-                   if the simulation fails or encounters errors.
+            Tuple[float, float]: A tuple containing:
+                                 - Total accumulated reward calculated during the virtual simulation.
+                                 - Average w_stab (stability score) during the virtual simulation.
+                                 Should return (0.0, 1.0) or similar defaults if the
+                                 simulation fails or encounters errors internally.
         """
         pass

@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 # Importar el contenedor para resolver dependencias
 from di_container import Container
 # --- IMPORT RENOMBRADO ---
-from utils.visualization_generator import VisualizationGenerator # Antes PlotGenerator
+from code_project.deprecated.v5_code.visualization_generator import VisualizationGenerator # Antes PlotGenerator
 # -------------------------
 
 logger = logging.getLogger(__name__)

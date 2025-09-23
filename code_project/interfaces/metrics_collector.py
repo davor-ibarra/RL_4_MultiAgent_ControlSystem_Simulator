@@ -1,6 +1,10 @@
+# interfaces/metrics_collector.py
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
+# 4.1: Interfaz sin cambios funcionales.
+# 4.2: Eliminados métodos específicos de log comentados (`log_q_values`, etc.)
+#      de la interfaz. La implementación concreta puede tenerlos como helpers.
 class MetricsCollector(ABC):
     """
     Interface for collecting metrics during a simulation episode.
@@ -8,12 +12,12 @@ class MetricsCollector(ABC):
     @abstractmethod
     def log(self, metric_name: str, metric_value: Any):
         """
-        Logs a single value for a specific metric during the current step or interval.
+        Logs a single value for a specific metric at the current step/interval.
+        Implementations should handle non-finite values gracefully (e.g., log as NaN).
 
         Args:
             metric_name (str): The name of the metric (e.g., 'pendulum_angle', 'reward').
-            metric_value (Any): The value of the metric. Should handle numerical types
-                                and potentially NaN or None.
+            metric_value (Any): The value of the metric.
         """
         pass
 
@@ -24,8 +28,7 @@ class MetricsCollector(ABC):
 
         Returns:
             Dict[str, List[Any]]: A dictionary where keys are metric names and values
-                                  are lists of collected values for that metric during the episode.
-                                  Should also include the 'episode' ID.
+                                  are lists of collected values for that metric.
         """
         pass
 
@@ -38,10 +41,3 @@ class MetricsCollector(ABC):
             episode_id (int): The ID of the new episode about to start.
         """
         pass
-
-    # Optional: Define specific logging methods for common complex data if needed
-    # @abstractmethod
-    # def log_q_values(self, agent: 'RLAgent', state: Any): pass
-    #
-    # @abstractmethod
-    # def log_td_errors(self, errors: Dict[str, float]): pass

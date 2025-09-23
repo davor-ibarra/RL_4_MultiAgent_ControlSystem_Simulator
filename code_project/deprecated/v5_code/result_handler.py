@@ -5,12 +5,12 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
-from utils.numpy_encoder import NumpyEncoder
+from numpy_encoder import NumpyEncoder
 # Importar RLAgent sólo para type hints
 if TYPE_CHECKING:
     from interfaces.rl_agent import RLAgent
 # Importar HeatmapGenerator normalmente ya que se usa en __init__
-from heatmap_generator import HeatmapGenerator
+from code_project.deprecated.v5_code.heatmap_generator import HeatmapGenerator
 
 class ResultHandler:
     """

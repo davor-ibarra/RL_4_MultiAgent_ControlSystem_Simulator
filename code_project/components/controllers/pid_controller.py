@@ -3,7 +3,7 @@ from typing import Dict, Any
 import logging
 import numpy as np # Para NaN
 
-# Obtener logger específico para este módulo
+# 5.1: Usar logger específico del módulo
 logger = logging.getLogger(__name__)
 
 class PIDController(Controller): # Implementar Interfaz Controller
@@ -19,37 +19,40 @@ class PIDController(Controller): # Implementar Interfaz Controller
             kp: Ganancia Proporcional inicial.
             ki: Ganancia Integral inicial.
             kd: Ganancia Derivativa inicial.
-            setpoint: Valor objetivo para la variable controlada (e.g., ángulo 0).
-            dt: Paso de tiempo usado para cálculos de integral y derivada.
-                Este dt se usa internamente y debe ser el mismo que el de la simulación.
+            setpoint: Valor objetivo para la variable controlada.
+            dt: Paso de tiempo usado para cálculos de integral y derivada (debe coincidir con simulación).
+        Raises:
+            ValueError: Si dt no es positivo o ganancias/setpoint no son numéricos.
+            TypeError: Si los tipos son incorrectos.
         """
         logger.info(f"Inicializando PIDController: Kp={kp}, Ki={ki}, Kd={kd}, Setpoint={setpoint}, dt={dt}")
-        # Validar parámetros
-        if not all(isinstance(p, (int, float)) for p in [kp, ki, kd, setpoint, dt]):
-             raise ValueError("Kp, Ki, Kd, Setpoint y dt deben ser numéricos.")
-        if dt <= 0:
-            raise ValueError(f"dt proporcionado a PIDController ({dt}) debe ser positivo.")
+        # 5.2: Validar parámetros (Fail-Fast)
+        try:
+            kp_f, ki_f, kd_f, sp_f, dt_f = map(float, [kp, ki, kd, setpoint, dt])
+        except (ValueError, TypeError) as e:
+            raise TypeError(f"Kp, Ki, Kd, Setpoint y dt deben ser numéricos: {e}") from e
+
+        if dt_f <= 0:
+            raise ValueError(f"dt proporcionado a PIDController ({dt_f}) debe ser positivo.")
 
         # Guardar valores iniciales para reset completo
-        self.initial_kp, self.initial_ki, self.initial_kd = kp, ki, kd
-        self.setpoint = setpoint
-        self._dt = dt # Guardar dt interno
-
-        # Ganancias
-        self.kp, self.ki, self.kd = kp, ki, kd
-        self.prev_kp = kp
-        self.prev_ki = ki
-        self.prev_kd = kd
-
+        self.initial_kp, self.initial_ki, self.initial_kd = kp_f, ki_f, kd_f
+        self.setpoint = sp_f
+        self._dt = dt_f # Guardar dt interno
+        # Ganancias actuales (inicializadas con valores validados)
+        self.kp, self.ki, self.kd = kp_f, ki_f, kd_f
+        self.prev_kp = kp_f
+        self.prev_ki = ki_f
+        self.prev_kd = kd_f
         # Estado interno del controlador - inicializar en reset_internal_state
         self.prev_error: float = 0.0
         self.integral_error: float = 0.0
         self.prev_integral_error = 0.0
         self.derivative_error: float = 0.0
-        # Asegurar inicialización limpia
-        self.reset_internal_state()
-
-        logger.info("PIDController inicializado.")
+        
+        # 5.3: Asegurar inicialización limpia de estado interno by reset_internal_state
+        logger.debug("PIDController inicializado. Llamando a reset_internal_state inicial.")
+        self.reset_internal_state() # Asegurar estado limpio al inicio
 
 
     def compute_action(self, state: Any) -> float:
@@ -61,44 +64,50 @@ class PIDController(Controller): # Implementar Interfaz Controller
             state: Vector de estado del sistema [cart_pos, cart_vel, angle, angular_vel].
 
         Returns:
-            float: Acción de control calculada (fuerza).
+            float: Acción de control calculada (fuerza). Devuelve 0.0 si el cálculo falla.
         """
+        # 5.4: Validar entrada 'state'
+        if not isinstance(state, (np.ndarray, list)) or len(state) < 3:
+            logger.warning(f"PID compute_action: Estado inválido o incompleto: {state}. Devolviendo 0.0.")
+            return 0.0
         try:
-            # Asegurar que state es indexable y tiene longitud suficiente
-            if not isinstance(state, (np.ndarray, list)) or len(state) < 3:
-                 raise IndexError(f"Estado inválido o incompleto para PIDController: {state}")
-
-            current_measurement = state[2] # Ángulo
+            current_measurement = float(state[2]) # Ángulo
+            if not np.isfinite(current_measurement):
+                 logger.warning(f"PID compute_action: Medición inválida (NaN/inf): {current_measurement}. Devolviendo 0.0.")
+                 return 0.0
             error = current_measurement - self.setpoint
 
             # --- Término Integral ---
+            # Normal -> I(t) = Sumatoria(error(t))
             #self.integral_error += error * self._dt
+            # Anti-WindUp -> I(t) = (Kp(t-1)*error(t-1) + Ki(t-1)*I(t-1)*dt - Kp(t)*error(t)) / Ki(t)
             self.integral_error += ((self.prev_kp * self.prev_error) + (self.prev_ki * self.prev_integral_error * self._dt) - (self.kp * error))/self.ki if self.ki!=0 else 0
 
             # --- Término Derivativo ---
             # D(t) = (error(t) - error(t-1)) / dt
-            # Usar self._dt asegurando que no es cero (validado en init)
-            derivative_error = (error - self.prev_error) / self._dt
-            self.derivative_error = derivative_error # Guardar para posible loggeo
+            # _dt ya validado como > 0 en init
+            derivative = (error - self.prev_error) / self._dt
+            self.derivative_error = derivative # Guardar para loggeo
 
             # --- Cálculo de la Acción de Control ---
             # u(t) = Kp*error(t) + Ki*Integral(t) + Kd*Derivada(t)
             proportional_term = self.kp * error
             integral_term = self.ki * self.integral_error
-            derivative_term = self.kd * derivative_error
+            derivative_term = self.kd * derivative
 
-            u = proportional_term + integral_term + derivative_term
+            control_action = proportional_term + integral_term + derivative_term
+
+            logger.debug(f"Controller -> compute_action() -> dt={self._dt}, Kp={self.kp}, Ki={self.ki}, Kd={self.kd}")
+            logger.debug(f"Controller -> compute_action() -> prev_err={self.prev_error:.8f}, prev_I_error={self.prev_integral_error:.8f}")
+            logger.debug(f"Controller -> compute_action() -> err={error:.8f}, I_error={self.integral_error:.8f}, D_error={self.derivative_error:.8f}")
+            logger.debug(f"Controller -> compute_action() -> PID Compute: P={proportional_term:.8f}, I={integral_term:.8f}, D={derivative_term:.8f} -> u={control_action:.8f}")
 
             # --- Actualizar estado interno para el siguiente paso ---
-            self.prev_kp = self.kp
-            self.prev_ki = self.ki
-            self.prev_kd = self.kd
             self.prev_error = error
             self.prev_integral_error = self.integral_error
 
-            # logger.debug(f"PID Compute: Err={error:.3f}, P={proportional_term:.3f}, I={integral_term:.3f}, D={derivative_term:.3f} -> u={u:.3f}")
             # Devolver como float estándar
-            return float(u) if np.isfinite(u) else 0.0 # Devolver 0 si es NaN/inf
+            return float(control_action) if np.isfinite(control_action) else 0.0 # Devolver 0 si es NaN/inf
 
         except IndexError as e:
              logger.error(f"PIDController: Error de índice en compute_action: {e}. Estado: {state}")
@@ -110,33 +119,41 @@ class PIDController(Controller): # Implementar Interfaz Controller
 
     def update_params(self, kp: float, ki: float, kd: float):
         """Actualiza las ganancias del controlador."""
-        # logger.debug(f"PID Gains Update: Kp={kp:.2f}, Ki={ki:.2f}, Kd={kd:.2f} (Prev: Kp={self.kp:.2f}, Ki={self.ki:.2f}, Kd={self.kd:.2f})")
-        # Validar que sean números finitos?
-        self.kp = kp if np.isfinite(kp) else self.kp # Mantener anterior si es inválido
-        self.ki = ki if np.isfinite(ki) else self.ki
-        self.kd = kd if np.isfinite(kd) else self.kd
+        # 5.5: Guardar ganancias ANTERIORES antes de actualizar
+        self.prev_kp = self.kp
+        self.prev_ki = self.ki
+        self.prev_kd = self.kd
 
+        # Validar y actualizar nuevas ganancias
+        self.kp = float(kp) if np.isfinite(kp) else self.prev_kp # Revertir si es inválido
+        self.ki = float(ki) if np.isfinite(ki) else self.prev_ki
+        self.kd = float(kd) if np.isfinite(kd) else self.prev_kd
+        # Loguear si se revirtió alguna ganancia?
+        if not np.isfinite(kp) or not np.isfinite(ki) or not np.isfinite(kd):
+             logger.warning(f"update_params recibió NaN/inf. Kp={kp}, Ki={ki}, Kd={kd}. Se revirtieron las inválidas.")
+        #logger.debug(f"PID Gains Updated: Kp={self.kp:.3f}, Ki={self.ki:.3f}, Kd={self.kd:.3f} (Prev: Kp={self.prev_kp:.2f}, Ki={self.prev_ki:.2f}, Kd={self.prev_kd:.2f})")
 
     def get_params(self) -> Dict[str, float]:
         """Devuelve las ganancias actuales."""
         return {'kp': self.kp, 'ki': self.ki, 'kd': self.kd}
 
-
     def reset(self):
         """Resetea las ganancias a sus valores iniciales y limpia el estado interno."""
         logger.debug("PIDController: Resetting gains to initial values and clearing internal state.")
+        # Restaurar ganancias iniciales
         self.kp, self.ki, self.kd = self.initial_kp, self.initial_ki, self.initial_kd
-        self.reset_internal_state() # Llamar a reset interno para limpiar errores
-
+        # Resetear estado interno también
+        self.reset_internal_state()
 
     def reset_internal_state(self):
-        """Resetea solo el estado interno (errores, integral) sin tocar las ganancias."""
-        # logger.debug("PIDController: Resetting internal state (errors, integral).")
+        """Resetea solo el estado interno (errores, integral) y prev_gains"""
+        # logger.debug("PIDController: Resetting internal state (errors, integral, prev_gains).")
         self.prev_error = 0.0
         self.integral_error = 0.0
         self.prev_integral_error = 0.0
         self.derivative_error = 0.0
-        self.prev_kp = self.initial_kp
-        self.prev_ki = self.initial_ki
-        self.prev_kd = self.initial_kd
+        # 5.6: Resetear prev_gains a las ganancias *actuales* después del reset (o iniciales)
+        self.prev_kp = self.kp
+        self.prev_ki = self.ki
+        self.prev_kd = self.kd
         

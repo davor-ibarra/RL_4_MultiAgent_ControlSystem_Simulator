@@ -1,6 +1,8 @@
+# interfaces/stability_calculator.py
 from abc import ABC, abstractmethod
 from typing import Any, Dict
 
+# 8.1: Interfaz sin cambios funcionales, docstrings mejorados.
 class BaseStabilityCalculator(ABC):
     """
     Abstract base class for stability calculation components.
@@ -17,11 +19,11 @@ class BaseStabilityCalculator(ABC):
         RewardFunction or directly in some RewardStrategies (e.g., Shadow Baseline).
 
         Args:
-            state: The current state vector or representation.
+            state (Any): The current state vector or representation.
 
         Returns:
-            float: The calculated stability score (e.g., w_stab). Should be clamped to [0, 1].
-                   Returns 1.0 or 0.0 in case of calculation errors or invalid state.
+            float: Calculated stability score (w_stab), clamped to [0, 1].
+                   Should return a default value (e.g., 1.0 or 0.0) on calculation error.
         """
         pass
 
@@ -29,16 +31,15 @@ class BaseStabilityCalculator(ABC):
     def calculate_stability_based_reward(self, state: Any) -> float:
         """
         Calculates a reward value based *solely* on the system's stability,
-        derived from the current state. This is used when the main reward calculation
-        method is set to 'stability_calculator'.
+        derived from the current state. Used when the main reward calculation
+        method is configured to 'stability_calculator'.
 
         Args:
-            state: The current state vector or representation.
+            state (Any): The current state vector or representation.
 
         Returns:
-            float: The calculated reward value based on stability.
-                   Return value depends on the specific calculator's formula (e.g., exp(-lambda*Z^2)).
-                   Returns 0.0 or a default low value on error.
+            float: Calculated reward value based on stability.
+                   Should return a default value (e.g., 0.0) on calculation error.
         """
         pass
 
@@ -47,25 +48,23 @@ class BaseStabilityCalculator(ABC):
         """
         Updates internal reference statistics (like mean 'mu' and std dev 'sigma')
         based on data collected during a completed episode.
-        This method is primarily intended for adaptive calculators (e.g., IRA).
-        Non-adaptive calculators should provide an empty implementation (`pass`).
+        Intended for adaptive calculators (e.g., IRA). Non-adaptive calculators
+        should provide an empty implementation (`pass`).
 
         Args:
-            episode_metrics_dict (Dict): Dictionary containing lists of metrics
-                                         collected during the episode.
-            current_episode (int): The episode number that just finished.
+            episode_metrics_dict (Dict): Dictionary with lists of metrics from the episode.
+            current_episode (int): Episode number that just finished.
         """
         pass
 
     @abstractmethod
     def get_current_adaptive_stats(self) -> Dict:
-         """
-         Returns the current internal reference statistics (e.g., mu, sigma per variable)
-         used by the calculator. Intended for logging and debugging adaptive calculators.
-         Returns an empty dictionary if the calculator is not adaptive or has no stats.
+        """
+        Returns the current internal reference statistics (e.g., mu, sigma per variable)
+        used by the calculator. Intended for logging and debugging adaptive calculators.
 
-         Returns:
-            Dict: A dictionary containing the current adaptive statistics,
-                  e.g., {'angle': {'mu': 0.1, 'sigma': 0.5}, ...} or {}.
-         """
-         pass
+        Returns:
+            Dict: Dictionary with current adaptive statistics (e.g.,
+                  {'angle': {'mu': 0.1, 'sigma': 0.5}, ...}) or {} if non-adaptive.
+        """
+        pass
