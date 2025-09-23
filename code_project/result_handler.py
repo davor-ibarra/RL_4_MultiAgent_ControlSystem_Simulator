@@ -75,24 +75,18 @@ class ResultHandler:
         if not os.path.isdir(results_folder): self._logger.error(f"[ResultHandler] La carpeta de resultados '{results_folder}' no existe al guardar batch. Omitiendo."); return
         if not batch_data: self._logger.warning("[ResultHandler] Se intentó guardar un lote de episodios vacío. Omitiendo."); return
         try:
-            # --- Corrección: Usar el ID del episodio del primer elemento del batch ---
-            first_episode_id = 'unknown'
-            if isinstance(batch_data[0], dict):
-                # Intentar obtener el ID del primer episodio del batch
-                # Asumiendo que `metrics_collector` añade 'episode_id' o similar
-                # O si `summarize_episode` lo añade a `episode_metrics` antes del append
-                # Si no, usar el primer valor de la lista 'episode' si existe
-                if 'episode' in batch_data[0] and isinstance(batch_data[0]['episode'], list) and batch_data[0]['episode']:
-                    first_episode_id = batch_data[0]['episode'][0]
-                elif 'episode_id' in batch_data[0]: # Chequear clave específica si la hay
-                    first_episode_id = batch_data[0]['episode_id']
+            # --- Calcular el primer episodio del lote ---
+            num_episodes_in_batch = len(batch_data)
+            # Asumiendo que los episodios son consecutivos y terminan en last_episode
+            first_episode_in_batch = last_episode - num_episodes_in_batch + 1
 
-            # Crear nombre de archivo basado en rango
-            try:
-                f_ep = int(first_episode_id); l_ep = int(last_episode)
-                filename_range = f"{f_ep}_to_{l_ep}" if f_ep <= l_ep else f"{l_ep}_to_{f_ep}" # Asegurar orden
-            except (ValueError, TypeError):
-                filename_range = f"{first_episode_id}_to_{last_episode}" # Fallback si no son números
+            # Validar que el cálculo sea razonable (el primer episodio debe ser >= 0)
+            if first_episode_in_batch < 0:
+                 self._logger.warning(f"[ResultHandler] Cálculo del primer episodio dio negativo ({first_episode_in_batch}). Usando 0 como inicio. last_episode={last_episode}, batch_size={num_episodes_in_batch}")
+                 first_episode_in_batch = 0 # Ajustar a 0 si el cálculo da negativo
+
+            # Usar los números calculados para el nombre del archivo
+            filename_range = f"{first_episode_in_batch}_to_{last_episode}"
 
             filename = f"simulation_data_{filename_range}.json"
             path = os.path.join(results_folder, filename)

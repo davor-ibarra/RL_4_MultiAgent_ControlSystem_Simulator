@@ -12,14 +12,13 @@ class NumpyEncoder(json.JSONEncoder):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         # Manejar tipos flotantes de NumPy
-        if isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+        if isinstance(obj, (np.float16, np.float32, np.float64)):
             # Convertir NaN/inf a strings o None para JSON válido
             if pd.isna(obj) or not np.isfinite(obj):
                 return None # o 'NaN', 'Infinity', '-Infinity' si se prefiere string
             return float(obj)
         # Manejar tipos enteros de NumPy
-        if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64,
-                           np.uint8, np.uint16, np.uint32, np.uint64)): # Añadir unsigned
+        if isinstance(obj, ((np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64))):
             return int(obj)
         # Manejar booleanos de NumPy
         if isinstance(obj, np.bool_):

@@ -12,6 +12,12 @@ class RewardFunction(ABC):
         """
         Calculates the instantaneous reward and a stability score for the given transition.
 
+        The method for calculating the reward value depends on the configuration
+        (e.g., 'gaussian', 'stability_calculator').
+
+        The stability score (w_stab) is always calculated if a StabilityCalculator
+        component is provided during initialization, otherwise it defaults to 1.0.
+
         Args:
             state: The state before the action was taken.
             action: The action taken (e.g., force applied, agent's action choice).
@@ -20,10 +26,10 @@ class RewardFunction(ABC):
 
         Returns:
             A tuple containing:
-            - reward (float): The calculated reward value for this step.
-            - stability_score (float): A score indicating system stability (e.g., w_stab),
-                                       typically between 0 and 1. Defaults to 1.0 if not
-                                       calculated or applicable.
+            - reward_value (float): The calculated instantaneous reward value for this step.
+            - stability_score (float): A score indicating system stability (w_stab),
+                                       typically between 0 and 1. Defaults to 1.0 if no
+                                       StabilityCalculator is available or if calculation fails.
         """
         pass
 

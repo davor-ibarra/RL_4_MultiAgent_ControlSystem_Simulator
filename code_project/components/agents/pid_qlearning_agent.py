@@ -1,3 +1,4 @@
+# components/agents/pid_qlearning_agent.py
 import numpy as np
 import pandas as pd
 import logging
@@ -7,6 +8,7 @@ from interfaces.controller import Controller # Para type hint en build_agent_sta
 from collections import OrderedDict
 from typing import Dict, Any, Optional, Tuple, Union, List
 
+# Importar Shadow strategy sólo para isinstance check (opcional pero claro)
 from components.reward_strategies.shadow_baseline_reward_strategy import ShadowBaselineRewardStrategy
 
 # Obtener logger específico para este módulo
@@ -44,347 +46,283 @@ class PIDQLearningAgent(RLAgent): # Implementar Interfaz RLAgent
                  ):
         """
         Inicializa el agente PID Q-Learning. Recibe RewardStrategy como dependencia.
-
-        Args:
-            reward_strategy: La instancia de RewardStrategy a usar para calcular R_learn.
-            state_config: Configuración para la discretización de cada variable de estado.
-            num_actions: Número de acciones discretas por ganancia.
-            gain_step: Magnitud del cambio de ganancia por acción (float global o dict por ganancia).
-            variable_step: Indica si gain_step es un diccionario por ganancia.
-            discount_factor: Factor de descuento gamma.
-            epsilon: Tasa de exploración inicial.
-            epsilon_min: Tasa de exploración mínima.
-            epsilon_decay: Factor de decaimiento de epsilon.
-            learning_rate: Tasa de aprendizaje alfa inicial.
-            learning_rate_min: Tasa de aprendizaje mínima.
-            learning_rate_decay: Factor de decaimiento de alfa.
-            use_epsilon_decay: Activar/desactivar decaimiento de epsilon.
-            use_learning_rate_decay: Activar/desactivar decaimiento de alfa.
-            q_init_value: Valor con el que se inicializan las entradas de las Q-tables.
-            visit_init_value: Valor con el que se inicializan los contadores de visita.
-            shadow_baseline_params: Parámetros adicionales para Shadow Baseline (e.g., baseline_init_value).
+        (Docstring sin cambios respecto a Paso 1)
         """
         logger.info("Inicializando PIDQLearningAgent...")
         # --- Almacenamiento de Dependencias y Parámetros ---
         if not isinstance(reward_strategy, RewardStrategy):
-             # Esta validación es útil aquí aunque AgentFactory también valida
              raise TypeError("El argumento 'reward_strategy' debe ser una instancia de RewardStrategy.")
         self.reward_strategy = reward_strategy
         logger.info(f"Usando Reward Strategy: {type(self.reward_strategy).__name__}")
 
-        # Validar y almacenar configuración de estado
         try:
              self.state_config = self._validate_and_prepare_state_config(state_config)
         except ValueError as e:
              logger.error(f"Configuración de estado inválida: {e}", exc_info=True)
-             raise # Relanzar para detener la creación
+             raise
 
         self.num_actions = num_actions
         self.q_init_value = q_init_value
         self.visit_init_value = visit_init_value
 
-        # Validar y almacenar gain_step/variable_step
         self.gain_step = gain_step
         self.variable_step = variable_step
         if variable_step:
-            if not isinstance(gain_step, dict):
-                raise ValueError("Se especificó variable_step=True, pero gain_step no es un diccionario.")
-            # Opcional: Validar que las claves de gain_step sean 'kp', 'ki', 'kd'?
-        elif not isinstance(gain_step, (float, int)):
-            raise ValueError("Se especificó variable_step=False, pero gain_step no es numérico.")
+            if not isinstance(gain_step, dict): raise ValueError("variable_step=True, pero gain_step no es dict.")
+        elif not isinstance(gain_step, (float, int)): raise ValueError("variable_step=False, pero gain_step no es numérico.")
 
-        # Almacenar parámetros de aprendizaje
         self.discount_factor = discount_factor
-        self._initial_epsilon = epsilon # Guardar valor inicial
-        self._initial_learning_rate = learning_rate # Guardar valor inicial
+        self._initial_epsilon, self._initial_learning_rate = epsilon, learning_rate
         self._epsilon, self._epsilon_min, self._epsilon_decay = epsilon, epsilon_min, epsilon_decay
         self._learning_rate, self._learning_rate_min, self._learning_rate_decay = learning_rate, learning_rate_min, learning_rate_decay
         self.use_epsilon_decay, self.use_learning_rate_decay = use_epsilon_decay, use_learning_rate_decay
 
-        # --- Configuración específica de Baseline (Shadow Mode) ---
-        # Determinar si la estrategia inyectada es Shadow Baseline
+        # --- Configuración Baseline (Shadow Mode) ---
         self.is_shadow_mode = isinstance(self.reward_strategy, ShadowBaselineRewardStrategy)
-
         self.baseline_init_value = 0.0
         if self.is_shadow_mode:
              if shadow_baseline_params and isinstance(shadow_baseline_params, dict):
                   self.baseline_init_value = shadow_baseline_params.get('baseline_init_value', 0.0)
                   logger.info(f"Shadow Baseline detectado. B(s) init: {self.baseline_init_value}")
-             else:
-                  logger.warning("Shadow Baseline detectado, pero 'shadow_baseline_params' no válido. Usando B(s)=0.0.")
+             else: logger.warning("Shadow Baseline detectado, pero 'shadow_baseline_params' no válido. Usando B(s)=0.0.")
 
         # --- Inicialización de Estructuras Internas ---
         self.ordered_state_vars_for_gain: Dict[str, List[str]] = {}
-        self.gain_variables = ['kp', 'ki', 'kd'] # Ganancias controladas
-
-        # Tablas NumPy para eficiencia
+        self.gain_variables = ['kp', 'ki', 'kd']
         self.q_tables_np: Dict[str, np.ndarray] = {}
         self.visit_counts_np: Dict[str, np.ndarray] = {}
-        self.baseline_tables_np: Dict[str, np.ndarray] = {} # Siempre inicializar
-
-        # Últimos TD errors (para logging)
+        self.baseline_tables_np: Dict[str, np.ndarray] = {}
         self._last_td_errors: Dict[str, float] = {gain: np.nan for gain in self.gain_variables}
 
         # --- Crear e Inicializar Tablas NumPy ---
-        # (Lógica mantenida como estaba, ya que es interna al agente)
         for gain in self.gain_variables:
             ordered_vars_list = self._get_ordered_vars_for_gain(gain)
             if not ordered_vars_list:
-                 logger.info(f"No hay variables de estado habilitadas definidas para la ganancia '{gain}'. No se crearán tablas.")
+                 logger.info(f"No hay variables de estado habilitadas para ganancia '{gain}'. No se crearán tablas.")
                  continue
-
             logger.info(f"Inicializando tablas NumPy para ganancia '{gain}'...")
             self.ordered_state_vars_for_gain[gain] = ordered_vars_list
             try:
                 state_dims = [self.state_config[var]['bins'] for var in ordered_vars_list]
-                if not state_dims: raise ValueError("No se encontraron dimensiones de estado para crear las tablas.")
-
+                if not state_dims: raise ValueError("No se encontraron dimensiones de estado.")
                 q_visit_shape = tuple(state_dims + [self.num_actions])
                 baseline_shape = tuple(state_dims)
-                logger.debug(f"  - Orden vars para '{gain}': {ordered_vars_list}")
-                logger.debug(f"  - Dimensiones estado: {state_dims}")
-                logger.debug(f"  - Shape Q/Visit para '{gain}': {q_visit_shape}")
-                logger.debug(f"  - Shape Baseline para '{gain}': {baseline_shape}")
-
+                logger.debug(f"  - Orden vars '{gain}': {ordered_vars_list}")
+                logger.debug(f"  - Shape Q/Visit '{gain}': {q_visit_shape}, Shape Baseline '{gain}': {baseline_shape}")
                 self.q_tables_np[gain] = np.full(q_visit_shape, self.q_init_value, dtype=np.float32)
                 self.visit_counts_np[gain] = np.full(q_visit_shape, self.visit_init_value, dtype=np.int32)
-                # Inicializar Baseline table siempre
                 self.baseline_tables_np[gain] = np.full(baseline_shape, self.baseline_init_value, dtype=np.float32)
-                logger.debug(f"  - Tablas NumPy creadas para '{gain}'.")
-
             except KeyError as e:
-                logger.error(f"Error obteniendo 'bins' para variable {e} (ganancia '{gain}'). Saltando inicialización.")
-                if gain in self.ordered_state_vars_for_gain: del self.ordered_state_vars_for_gain[gain]
-                # Limpiar otras tablas si falló
-                if gain in self.q_tables_np: del self.q_tables_np[gain]
-                if gain in self.visit_counts_np: del self.visit_counts_np[gain]
-                if gain in self.baseline_tables_np: del self.baseline_tables_np[gain]
+                logger.error(f"Error init tablas '{gain}': Falta 'bins' para variable {e}. Saltando."); self._cleanup_failed_gain_init(gain)
             except ValueError as e:
-                 logger.error(f"Error en dimensiones/shape al crear tablas para ganancia '{gain}': {e}. Saltando inicialización.")
-                 if gain in self.ordered_state_vars_for_gain: del self.ordered_state_vars_for_gain[gain]
+                 logger.error(f"Error init tablas '{gain}': {e}. Saltando."); self._cleanup_failed_gain_init(gain)
+            except Exception as e:
+                 logger.error(f"Error inesperado init tablas '{gain}': {e}", exc_info=True); self._cleanup_failed_gain_init(gain)
 
         logger.info("PIDQLearningAgent inicializado exitosamente.")
-        if not self.q_tables_np:
-             logger.warning("¡Ninguna tabla Q fue inicializada! El agente no aprenderá. Verificar 'state_config'.")
+        if not self.q_tables_np: logger.warning("¡Ninguna tabla Q fue inicializada! Verificar 'state_config'.")
+
+    def _cleanup_failed_gain_init(self, gain: str):
+        """Helper para limpiar tablas si la inicialización falla."""
+        if gain in self.ordered_state_vars_for_gain: del self.ordered_state_vars_for_gain[gain]
+        if gain in self.q_tables_np: del self.q_tables_np[gain]
+        if gain in self.visit_counts_np: del self.visit_counts_np[gain]
+        if gain in self.baseline_tables_np: del self.baseline_tables_np[gain]
 
     # --- Implementación de Propiedades de la Interfaz ---
     @property
-    def epsilon(self) -> float:
-        """Current exploration rate (epsilon)."""
-        return self._epsilon
-
+    def epsilon(self) -> float: return self._epsilon
     @property
-    def learning_rate(self) -> float:
-        """Current learning rate (alpha)."""
-        return self._learning_rate
+    def learning_rate(self) -> float: return self._learning_rate
 
     # --- Métodos Helper Internos (Discretización, Validación) ---
-    # (Mantenidos como estaban, son lógica interna del agente)
     def _validate_and_prepare_state_config(self, config: Dict) -> Dict:
         """Valida la estructura y contenido de state_config."""
-        # ... (código sin cambios) ...
         logger.debug("Validando state_config...")
         validated_config = {}
-        required_keys = ['enabled', 'min', 'max', 'bins']
-        if not isinstance(config, dict):
-             raise ValueError("state_config debe ser un diccionario.")
-
+        required_keys_enabled = ['min', 'max', 'bins']
+        if not isinstance(config, dict): raise ValueError("state_config debe ser dict.")
         for var, cfg in config.items():
-            if not isinstance(cfg, dict):
-                raise ValueError(f"Configuración de estado para '{var}' debe ser un diccionario.")
-            if 'enabled' not in cfg:
-                # Permitir omitir 'enabled' si no está, asumiendo False? No, mejor requerirlo.
-                raise ValueError(f"Configuración de estado para '{var}' falta la clave 'enabled'.")
-
-            validated_config[var] = cfg.copy() # Guardar copia
-
+            if not isinstance(cfg, dict): raise ValueError(f"Config para '{var}' debe ser dict.")
+            if 'enabled' not in cfg: raise ValueError(f"Config para '{var}' falta 'enabled'.")
+            validated_config[var] = cfg.copy()
             if cfg['enabled']:
-                missing_keys = [key for key in required_keys if key not in cfg]
-                if missing_keys:
-                    raise ValueError(f"Configuración de estado habilitada para '{var}' faltan claves: {missing_keys}.")
-                if not isinstance(cfg['min'], (int, float)) or not isinstance(cfg['max'], (int, float)):
-                    raise ValueError(f"Configuración '{var}': 'min' y 'max' deben ser numéricos.")
-                if cfg['min'] >= cfg['max']:
-                    raise ValueError(f"Configuración '{var}': 'min' ({cfg['min']}) debe ser < 'max' ({cfg['max']}).")
-                if not isinstance(cfg['bins'], int) or cfg['bins'] <= 0:
-                    raise ValueError(f"Configuración '{var}': 'bins' ({cfg['bins']}) debe ser entero positivo.")
-                logger.debug(f" - Variable '{var}': Habilitada, Min={cfg['min']}, Max={cfg['max']}, Bins={cfg['bins']}")
-
+                missing_keys = [key for key in required_keys_enabled if key not in cfg]
+                if missing_keys: raise ValueError(f"Config habilitada '{var}' faltan claves: {missing_keys}.")
+                if not all(isinstance(cfg[k], (int, float)) for k in ['min', 'max']): raise ValueError(f"Config '{var}': 'min'/'max' deben ser numéricos.")
+                if cfg['min'] >= cfg['max']: raise ValueError(f"Config '{var}': 'min' ({cfg['min']}) debe ser < 'max' ({cfg['max']}).")
+                if not isinstance(cfg['bins'], int) or cfg['bins'] <= 0: raise ValueError(f"Config '{var}': 'bins' ({cfg['bins']}) debe ser entero positivo.")
+                logger.debug(f" - Var '{var}': Habilitada, Min={cfg['min']}, Max={cfg['max']}, Bins={cfg['bins']}")
         logger.debug("state_config validado.")
         return validated_config
 
     def _get_ordered_vars_for_gain(self, gain: str) -> List[str]:
         """Obtiene la lista ordenada de variables de estado *habilitadas* relevantes para una ganancia."""
-        # ... (código sin cambios) ...
         ordered_vars = OrderedDict()
+        # Añadir variables base habilitadas
         for var, cfg in self.state_config.items():
             if cfg.get('enabled', False) and var not in self.gain_variables:
                 ordered_vars[var] = True
+        # Añadir la propia ganancia si está habilitada como estado
         if gain in self.state_config and self.state_config[gain].get('enabled', False):
             ordered_vars[gain] = True
         return list(ordered_vars.keys())
 
-
     def _discretize_value(self, value: float, var_name: str) -> int:
         """Discretiza un valor continuo según la configuración de la variable."""
-        # ... (código sin cambios) ...
         if var_name not in self.state_config or not self.state_config[var_name].get('enabled'):
-             # logger.warning(f"Intento de discretizar variable '{var_name}' sin config o deshabilitada.")
              return 0 # Índice por defecto si no hay config o no está habilitada
-
-        config = self.state_config[var_name]
-        bins = config['bins']
-        min_val = config['min']
-        max_val = config['max']
-
+        config = self.state_config[var_name]; bins = config['bins']; min_val = config['min']; max_val = config['max']
         if bins <= 0 or max_val <= min_val: return 0
-
+        # Clip value
         clipped_value = np.clip(value, min_val, max_val)
+        # Handle edge case where bins=1
+        if bins == 1: return 0
+        # Calculate bin size, avoid division by zero if max_val == min_val (caught earlier)
         bin_size = (max_val - min_val) / bins
-        if bin_size <= 1e-9: return 0
-
-        if clipped_value >= max_val: index = bins - 1
-        else: index = int(np.floor((clipped_value - min_val) / bin_size))
-
+        if bin_size < 1e-9: return 0 # Avoid division by zero/precision issues
+        # Handle max edge case explicitly
+        if clipped_value >= max_val: return bins - 1
+        # Calculate index
+        index = int(np.floor((clipped_value - min_val) / bin_size))
+        # Final clip for safety
         return int(np.clip(index, 0, bins - 1))
 
-
-    def get_discrete_state_indices_tuple(self, agent_state_dict: Optional[Dict[str, Any]], gain_variable: str) -> Optional[tuple]: # <--- Aceptar Optional
-         """Convierte el diccionario de estado del agente en una tupla de índices discretos para una ganancia."""
-         # --- NUEVA VALIDACIÓN ---
+    def get_discrete_state_indices_tuple(self, agent_state_dict: Optional[Dict[str, Any]], gain_variable: str) -> Optional[tuple]:
+         """Convierte el diccionario de estado del agente en una tupla de índices discretos para una ganancia.
+            Devuelve None si el estado es inválido (falta clave o valor es NaN).
+         """
          if agent_state_dict is None:
-              logger.error(f"Se recibió agent_state_dict=None al intentar obtener índices para ganancia '{gain_variable}'.")
-              return None # Devolver None si el diccionario es None
-         # -----------------------
-
+              # Mantener este error ya que recibir None es inesperado
+              logger.error(f"get_discrete_state_indices_tuple recibió agent_state_dict=None para ganancia '{gain_variable}'.")
+              return None
          if gain_variable not in self.ordered_state_vars_for_gain:
-             # logger.debug(f"No hay vars ordenadas para ganancia '{gain_variable}'.")
-             return None
+             return None # No hay vars para esta ganancia
 
          ordered_vars = self.ordered_state_vars_for_gain[gain_variable]
          indices = []
          try:
              for var_name in ordered_vars:
-                 # --- CORRECCIÓN: Verificar existencia *antes* de acceder ---
+                 # --- CORRECCIÓN: No levantar KeyError si falta la clave ---
                  if var_name not in agent_state_dict:
-                     # Este log ya existía, mantenerlo.
-                     raise KeyError(f"Variable requerida '{var_name}' para ganancia '{gain_variable}' no en agent_state_dict: {list(agent_state_dict.keys())}")
+                     # Si el dict no está vacío, es un problema real. Si está vacío (como al inicio), es esperado.
+                     if agent_state_dict: # Solo loguear advertencia si el dict NO estaba vacío
+                         logger.warning(f"Variable habilitada '{var_name}' no encontrada en agent_state_dict no vacío (claves: {list(agent_state_dict.keys())}) al obtener índices para ganancia '{gain_variable}'.")
+                     # else: # Es normal al inicio si el dict es vacío, no loguear nada.
+                     #    pass
+                     return None # Devolver None si falta una clave requerida
+                 # --- FIN CORRECCIÓN ---
 
-                 value = agent_state_dict[var_name]
-                 # Asegurar que value es numérico antes de discretizar
-                 if not isinstance(value, (int, float)) or pd.isna(value):
-                      logger.warning(f"Valor no numérico o NaN ({value}) para '{var_name}' en discretización '{gain_variable}'. Usando índice 0.")
-                      index = 0
-                 else:
-                      index = self._discretize_value(float(value), var_name)
+                 value = agent_state_dict[var_name] # Acceder ahora que sabemos que existe
+
+                 # --- Chequeo de NaN (mantenido de la corrección anterior) ---
+                 if pd.isna(value):
+                     # Loguear esto sí puede ser útil, indica un estado inválido
+                     logger.warning(f"Valor NaN encontrado para variable habilitada '{var_name}' al obtener índices para ganancia '{gain_variable}'. Estado inválido para indexar tablas.")
+                     return None # Si cualquier componente es NaN, el índice de estado es inválido
+                 # --- FIN Chequeo de NaN ---
+
+                 # Si no es NaN, debe ser numérico. Discretizar.
+                 index = self._discretize_value(value, var_name)
                  indices.append(index)
-             return tuple(indices)
 
-         except KeyError as e:
-             # El error ahora es más informativo porque sabemos que agent_state_dict no era None
-             logger.error(f"Error de clave al discretizar estado para '{gain_variable}': {e}")
-             return None
-         except Exception as e:
-             logger.error(f"Error inesperado al discretizar estado para '{gain_variable}' (dict no era None): {e}", exc_info=True)
-             return None
+             return tuple(indices) # Devolver tupla solo si todos los componentes son válidos
 
+         # except KeyError: # Ya no debería ocurrir por falta de clave
+             # pass # Eliminar este bloque o mantenerlo por si acaso? Mejor quitarlo.
+         except Exception as e: # Captura errores de _discretize_value si value no fuera float, u otros
+             logger.error(f"Error inesperado obteniendo índices para '{gain_variable}': {e}", exc_info=True)
+             return None
 
     # --- Implementación de Métodos Principales de la Interfaz RLAgent ---
 
     def select_action(self, agent_state_dict: Dict[str, Any]) -> Dict[str, int]:
         """Selecciona una acción para cada ganancia (Kp, Ki, Kd) usando epsilon-greedy."""
-        # ... (código sin cambios) ...
         actions: Dict[str, int] = {}
-        exploration_decisions = {} # Para logging
         perform_exploration = np.random.rand() < self._epsilon
-
         for gain in self.gain_variables:
-            action_index = 1 # Acción por defecto: mantener ganancia
+            action_index = 1 # Default: maintain
             if gain in self.q_tables_np:
                 state_indices = self.get_discrete_state_indices_tuple(agent_state_dict, gain)
                 if state_indices is not None:
                     try:
                         if perform_exploration:
                             action_index = np.random.randint(self.num_actions)
-                            exploration_decisions[gain] = True
                         else:
                             q_values_for_state = self.q_tables_np[gain][state_indices]
                             action_index = int(np.argmax(q_values_for_state))
-                            exploration_decisions[gain] = False
-                    except IndexError:
-                        logger.error(f"IndexError seleccionando acción para '{gain}'. Índices: {state_indices}. Shape Q: {self.q_tables_np[gain].shape}. Usando acción 1.")
-                        action_index = 1
-                    except Exception as e:
-                        logger.error(f"Error inesperado seleccionando acción para '{gain}': {e}. Usando acción 1.", exc_info=True)
-                        action_index = 1
-                else:
-                    logger.warning(f"No se pudieron obtener índices para '{gain}' en select_action. Usando acción 1.")
-                    action_index = 1
-            # else: logger.debug(f"No hay tabla Q para ganancia '{gain}'. Usando acción 1.")
+                    except IndexError: logger.error(f"IndexError select_action '{gain}'. Índices: {state_indices}. Shape Q: {self.q_tables_np[gain].shape}. Usando acción 1."); action_index = 1
+                    except Exception as e: logger.error(f"Error select_action '{gain}': {e}. Usando acción 1.", exc_info=True); action_index = 1
+                else: logger.warning(f"No se pudieron obtener índices para '{gain}' en select_action. Usando acción 1."); action_index = 1
             actions[gain] = action_index
-        # logger.debug(f"Acciones: {actions} (Explorando: {exploration_decisions}, Epsilon: {self._epsilon:.3f})")
-        return actions
 
+        #logger.debug(f"PIDQLearningAgent -> select_action -> Acciones: {actions} (Explorando: {perform_exploration}, Epsilon: {self._epsilon:.3f})")
+
+        return actions
 
     def learn(self,
               current_agent_state_dict: Dict[str, Any], # S
               actions_dict: Dict[str, int],             # A
-              reward_info: Union[float, Tuple[float, float], Dict[str, float]], # R
+              reward_info: Union[float, Tuple[float, float], Dict[str, float]], # R (info pasada por SimManager)
               next_agent_state_dict: Dict[str, Any],    # S'
+              controller: Controller,
               done: bool):                               # Done flag
         """Actualiza las Q-tables usando la experiencia (S, A, R, S') y la RewardStrategy inyectada."""
-        # ... (código sin cambios funcionales, pero usando self.reward_strategy) ...
 
-        # 1. Parsear reward_info (como antes)
-        interval_reward: float = 0.0; avg_w_stab: float = 1.0; reward_dict: Optional[Dict[str, float]] = None
-        if isinstance(reward_info, tuple) and len(reward_info) == 2:
+        # 1. Parsear reward_info para obtener R_real y w_stab (Echo pasa dict)
+        interval_reward: float = 0.0; avg_w_stab: float = 1.0; reward_dict_echo: Optional[Dict[str, float]] = None
+        if isinstance(reward_info, tuple) and len(reward_info) == 2: # Formato para Shadow/Global desde SimMan
             interval_reward, avg_w_stab = reward_info
-            if pd.isna(avg_w_stab) or not np.isfinite(avg_w_stab): avg_w_stab = 1.0
-        elif isinstance(reward_info, dict):
-            reward_dict = reward_info
-            valid_rewards = [r for r in reward_info.values() if pd.notna(r) and np.isfinite(r)]
-            interval_reward = np.mean(valid_rewards) if valid_rewards else 0.0
-        elif isinstance(reward_info, (float, int)):
-            interval_reward = float(reward_info)
+            if not isinstance(interval_reward, (float, int)) or not np.isfinite(interval_reward): interval_reward = 0.0
+            if not isinstance(avg_w_stab, (float, int)) or not np.isfinite(avg_w_stab): avg_w_stab = 1.0 # Default w_stab
+        elif isinstance(reward_info, dict): # Formato para Echo desde SimMan
+            reward_dict_echo = reward_info # El dict contiene R_diff precalculados
+            # Estimar R_real si es necesario (o la strategy puede no necesitarlo)
+            # Por ahora, no lo necesitamos explícitamente si la estrategia es Echo
+            interval_reward = 0.0 # Placeholder, Echo usa R_diff del dict
+        elif isinstance(reward_info, (float, int)): # Podría ser solo R_real si w_stab no aplica
+             interval_reward = float(reward_info) if np.isfinite(reward_info) else 0.0
+             avg_w_stab = 1.0 # Asumir w_stab no aplica
         else:
-            logger.error(f"Learn recibió reward_info de tipo inesperado: {type(reward_info)}. Saltando learn.")
+            logger.error(f"Learn recibió reward_info tipo inesperado: {type(reward_info)}. Saltando learn.")
             return
 
-        # Resetear TD errors
-        self._last_td_errors = {gain: np.nan for gain in self.gain_variables}
+        self._last_td_errors = {gain: np.nan for gain in self.gain_variables} # Resetear
 
-        # 2. Iterar por cada ganancia
+        # 2. Iterar por cada ganancia controlada
         for gain in self.gain_variables:
-            if gain not in self.q_tables_np: continue # Saltar si no hay tabla
+            if gain not in self.q_tables_np: continue # Saltar si no hay tabla Q para esta ganancia
 
             try:
-                # 3. Obtener índices S y S'
+                # 3. Obtener índices discretos para S y S'
                 current_state_indices = self.get_discrete_state_indices_tuple(current_agent_state_dict, gain)
                 next_state_indices = self.get_discrete_state_indices_tuple(next_agent_state_dict, gain)
                 if current_state_indices is None or next_state_indices is None:
-                    logger.warning(f"No se pudieron obtener índices para '{gain}' en learn. Saltando.")
+                    logger.warning(f"No se pudieron obtener índices S o S' para '{gain}' en learn. Saltando actualización.")
                     continue
 
-                # 4. Obtener acción A_g
+                # 4. Obtener acción A_g tomada para esta ganancia
                 action_taken_idx = actions_dict.get(gain)
                 if action_taken_idx is None or not (0 <= action_taken_idx < self.num_actions):
-                    logger.warning(f"Índice de acción inválido '{action_taken_idx}' para '{gain}' en learn. Saltando.")
+                    logger.warning(f"Índice de acción inválido ({action_taken_idx}) para '{gain}' en learn. Saltando.")
                     continue
 
                 # 5. Calcular R_learn usando la ESTRATEGIA INYECTADA
+                # Pasamos toda la info necesaria, la estrategia decide qué usar.
                 reward_for_q_update = self.reward_strategy.compute_reward_for_learning(
-                    gain=gain, agent=self, # Pasar self (agente)
-                    current_agent_state_dict=current_agent_state_dict,
+                    gain=gain, agent=self,
+                    current_agent_state_dict=current_agent_state_dict, # Podría ser útil para estrategias futuras
                     current_state_indices=current_state_indices,
                     actions_dict=actions_dict,
                     action_taken_idx=action_taken_idx,
-                    interval_reward=interval_reward,
-                    avg_w_stab=avg_w_stab,
-                    reward_dict=reward_dict
+                    interval_reward=interval_reward, # R_real
+                    avg_w_stab=avg_w_stab,           # w_stab promedio
+                    reward_dict=reward_dict_echo,     # R_diff dict (solo para Echo)
+                    controller=controller
                 )
 
-                # Validar R_learn
-                if pd.isna(reward_for_q_update) or not np.isfinite(reward_for_q_update):
+                # Validar R_learn devuelto por la estrategia
+                if not isinstance(reward_for_q_update, (float, int)) or not np.isfinite(reward_for_q_update):
                      logger.warning(f"RewardStrategy devolvió R_learn inválido ({reward_for_q_update}) para '{gain}'. Usando 0.")
                      reward_for_q_update = 0.0
 
@@ -395,8 +333,10 @@ class PIDQLearningAgent(RLAgent): # Implementar Interfaz RLAgent
                 if done:
                     td_target = reward_for_q_update
                 else:
+                    # Usar nanmax para manejar posibles NaNs en Q-values si no se han visitado acciones
                     next_q_values = self.q_tables_np[gain][next_state_indices]
                     max_next_q = np.nanmax(next_q_values)
+                    # Si todas las acciones futuras tienen Q=NaN, max_next_q será NaN. Tratar como 0.
                     if pd.isna(max_next_q) or not np.isfinite(max_next_q): max_next_q = 0.0
                     td_target = reward_for_q_update + self.discount_factor * max_next_q
 
@@ -413,14 +353,11 @@ class PIDQLearningAgent(RLAgent): # Implementar Interfaz RLAgent
                 self.visit_counts_np[gain][full_index_current] += 1
 
             except IndexError as e:
-                q_shape = self.q_tables_np[gain].shape if gain in self.q_tables_np else 'N/A'
-                b_shape = self.baseline_tables_np.get(gain, np.array([])).shape # Safe get
+                q_shape = self.q_tables_np.get(gain, np.array([])).shape
+                b_shape = self.baseline_tables_np.get(gain, np.array([])).shape
                 logger.error(f"IndexError en learn '{gain}'. Índices S: {current_state_indices}, Acción: {action_taken_idx}. Q Shape: {q_shape}, B Shape: {b_shape}. Error: {e}")
-            except KeyError as e:
-                logger.error(f"KeyError durante learn '{gain}': {e}. Verificar dicts o lógica estrategia.")
-            except Exception as e:
-                logger.error(f"Error inesperado durante learn '{gain}': {e}.", exc_info=True)
-
+            except KeyError as e: logger.error(f"KeyError durante learn '{gain}': {e}. Verificar dicts o lógica estrategia.")
+            except Exception as e: logger.error(f"Error inesperado durante learn '{gain}': {e}.", exc_info=True)
 
     def reset_agent(self):
         """Actualiza epsilon y learning rate al final de un episodio."""
@@ -428,192 +365,116 @@ class PIDQLearningAgent(RLAgent): # Implementar Interfaz RLAgent
             self._epsilon = max(self._epsilon_min, self._epsilon * self._epsilon_decay)
         if self.use_learning_rate_decay:
             self._learning_rate = max(self._learning_rate_min, self._learning_rate * self._learning_rate_decay)
-        # Resetear TD errors
         self._last_td_errors = {gain: np.nan for gain in self.gain_variables}
         # logger.debug(f"Agent reset: Epsilon={self.epsilon:.4f}, LR={self.learning_rate:.4f}")
 
-
     def build_agent_state(self, raw_state_vector: Any, controller: Controller, state_config_for_build: Dict) -> Dict[str, Any]:
-        """Construye el diccionario de estado del agente a partir del estado crudo y el controlador."""
-        # ... (código sin cambios funcionales, solo asegurar uso de interfaz Controller) ...
-        agent_state = {}
-        state_vector_map = {'cart_position': 0, 'cart_velocity': 1, 'angle': 2, 'angular_velocity': 3}
-        try: current_gains = controller.get_params()
-        except Exception as e: logger.error(f"Error get_params en build_agent_state: {e}."); current_gains = {'kp': np.nan, 'ki': np.nan, 'kd': np.nan}
+        """Construye el diccionario de estado del agente (DEBUGGING AGRESIVO)."""
+        logger.debug(f"--- ENTERING build_agent_state ---")
+        logger.debug(f"Received state_config keys: {list(state_config_for_build.keys())}")
+        enabled_vars_in_config = {k:v for k, v in state_config_for_build.items() if isinstance(v, dict) and v.get('enabled')}
+        logger.debug(f"Enabled vars in received config: {list(enabled_vars_in_config.keys())}")
 
+        agent_state: Dict[str, Any] = {}
+
+        state_vector_map = {'cart_position': 0, 'cart_velocity': 1, 'angle': 2, 'angular_velocity': 3}
+        try:
+            current_gains = controller.get_params()
+            logger.debug(f"Controller get_params() returned: {current_gains}")
+        except Exception as e:
+            logger.error(f"Error get_params: {e}."); current_gains = {} # Devolver vacío si falla
+
+        # --- Bucle para rellenar valores (si existen) ---
         for var_name, config in state_config_for_build.items():
-            if config.get('enabled', False):
-                value = np.nan
+            if config.get('enabled', False): # Solo procesar habilitadas
+                value = np.nan # Default
                 if var_name in state_vector_map:
                     idx = state_vector_map[var_name]
                     try:
-                        if isinstance(raw_state_vector, (list, np.ndarray)) and len(raw_state_vector) > idx: value = raw_state_vector[idx]
-                        else: logger.warning(f"raw_state_vector inválido ({raw_state_vector}) para índice {idx} de '{var_name}'.")
-                    except Exception as e: logger.warning(f"Error acceso índice {idx} para '{var_name}': {e}")
-                elif var_name in current_gains: value = current_gains[var_name]
-                else: logger.warning(f"Variable habilitada '{var_name}' no encontrada.")
+                        if isinstance(raw_state_vector, (list, np.ndarray)) and len(raw_state_vector) > idx:
+                            val_raw = raw_state_vector[idx]
+                            if isinstance(val_raw, (int, float)) and np.isfinite(val_raw): 
+                                value = float(val_raw)
+                    except Exception: pass # Ignorar errores de estado crudo por ahora
+                elif var_name in current_gains:
+                    val_gain = current_gains.get(var_name) # Usar .get por si acaso
+                    if isinstance(val_gain, (int, float)) and np.isfinite(val_gain): value = float(val_gain)
 
-                try: agent_state[var_name] = float(value) if pd.notna(value) else np.nan
-                except (TypeError, ValueError): logger.warning(f"No se pudo convertir valor ({value}) a float para '{var_name}'."); agent_state[var_name] = np.nan
-        # logger.debug(f"Agent state construido: {agent_state}")
+                # Sobrescribir el NaN inicial solo si se encontró un valor válido
+                if not pd.isna(value):
+                    agent_state[var_name] = value
+                # else: logger.debug(f"Value for '{var_name}' remains NaN.")
+
+        logger.debug(f"--- EXITING build_agent_state --- Returning dict with keys: {list(agent_state.keys())}")
         return agent_state
 
-
     def get_agent_state_for_saving(self) -> Dict[str, Any]:
-        """
-        Prepara el estado interno del agente (tablas Q, Visit, Baseline) para guardado en JSON/Excel.
-        Los valores de estado en las tablas representan puntos discretos equiespaciados
-        que incluyen los límites min/max definidos en la configuración.
-        """
-        structured_q_tables = {}
-        structured_visit_counts = {}
-        structured_baseline_tables = {}
+        """Prepara el estado interno del agente para guardado."""
+        structured_q_tables = {}; structured_visit_counts = {}; structured_baseline_tables = {}
         logger.info("Estructurando estado del agente para guardado (formato Pandas)...")
-
-        # Definir precisión para guardar valores flotantes de estado representativo
-        float_precision_for_keys = 6 # Decimales a redondear
-
+        float_precision_for_keys = 6
         processed_gains = 0
+
         for gain in self.gain_variables:
-            # Comprobar si existen tablas para esta ganancia
             if gain in self.q_tables_np and gain in self.ordered_state_vars_for_gain:
                 logger.debug(f"Estructurando datos para ganancia '{gain}'...")
-                q_table_list = []
-                visit_count_list = []
-                baseline_list = [] # Lista para B(s)
-
+                q_table_list = []; visit_count_list = []; baseline_list = []
                 ordered_vars = self.ordered_state_vars_for_gain[gain]
-                np_q_table = self.q_tables_np[gain]
-                np_visits = self.visit_counts_np[gain]
-                # Acceder a baseline table (puede no existir si hubo error en init)
-                np_baseline = self.baseline_tables_np.get(gain) # Use .get for safety
+                np_q_table = self.q_tables_np[gain]; np_visits = self.visit_counts_np[gain]; np_baseline = self.baseline_tables_np.get(gain)
+                if np_q_table is None or np_visits is None: logger.warning(f"Tabla Q/Visitas es None para '{gain}'. Saltando."); continue
 
-                if np_q_table is None or np_visits is None:
-                     logger.warning(f"Tabla Q o de Visitas es None para ganancia '{gain}'. Saltando estructuración.")
-                     continue
-
-                state_shape = np_q_table.shape[:-1] # Shape sin la dimensión de acción
-                action_dim = np_q_table.shape[-1]
-
-                # Precalcular los puntos discretos para cada variable de esta ganancia
-                discrete_points_cache = {}
-                valid_cache = True
+                state_shape = np_q_table.shape[:-1]; action_dim = np_q_table.shape[-1]
+                discrete_points_cache = {}; valid_cache = True
                 for var_name in ordered_vars:
                      try:
-                          config = self.state_config[var_name]
-                          min_val, max_val, bins = config['min'], config['max'], config['bins']
-                          if bins > 1:
-                               discrete_points_cache[var_name] = np.linspace(min_val, max_val, bins)
-                          elif bins == 1:
-                               discrete_points_cache[var_name] = np.array([(min_val + max_val) / 2.0])
-                          else: # bins <= 0 (inválido, pero manejar)
-                               logger.warning(f"Bins inválido ({bins}) para '{var_name}' en get_agent_state_for_saving. Usando min_val.")
-                               discrete_points_cache[var_name] = np.array([min_val])
-                     except KeyError as e:
-                          logger.error(f"Falta configuración ('{e}') para variable '{var_name}' al precalcular puntos discretos. Saltando ganancia '{gain}'.")
-                          valid_cache = False
-                          break # Salir del bucle de variables si falta config
-                if not valid_cache:
-                     continue # Saltar a la siguiente ganancia si falla el precalculo
+                          config = self.state_config[var_name]; min_val, max_val, bins = config['min'], config['max'], config['bins']
+                          if bins > 1: discrete_points_cache[var_name] = np.linspace(min_val, max_val, bins)
+                          elif bins == 1: discrete_points_cache[var_name] = np.array([(min_val + max_val) / 2.0])
+                          else: discrete_points_cache[var_name] = np.array([min_val]) # Bins <= 0
+                     except KeyError as e: logger.error(f"Falta config ('{e}') para '{var_name}' precalculando puntos. Saltando '{gain}'."); valid_cache = False; break
+                if not valid_cache: continue
 
-                # Iterar sobre todas las combinaciones de índices de estado discretos
                 total_states_in_table = np.prod(state_shape)
-                processed_states = 0
                 for state_indices_tuple in np.ndindex(state_shape):
-                    processed_states += 1
-                    # Log progreso opcionalmente (puede ser lento)
-                    # if processed_states % 10000 == 0:
-                    #      logger.debug(f"  Gain '{gain}': Procesando estado {processed_states}/{total_states_in_table}")
-
-                    # --- Crear diccionario que representa el estado (valores discretos exactos) ---
                     state_repr_dict = {}
                     try:
                         for i, var_name in enumerate(ordered_vars):
-                            # Obtener el valor precalculado usando el índice discreto
                             current_index = state_indices_tuple[i]
-                            # Validar índice contra tamaño de puntos cacheados
-                            if current_index >= len(discrete_points_cache[var_name]):
-                                 raise IndexError(f"Índice {current_index} fuera de rango para puntos discretos de '{var_name}' (tamaño {len(discrete_points_cache[var_name])}).")
-                            repr_value = discrete_points_cache[var_name][current_index]
-                            # Redondear para evitar problemas de precisión flotante en claves JSON/Excel
-                            state_repr_dict[var_name] = round(repr_value, float_precision_for_keys)
+                            if current_index >= len(discrete_points_cache[var_name]): raise IndexError(f"Índice {current_index} fuera rango pts '{var_name}' (tamaño {len(discrete_points_cache[var_name])}).")
+                            state_repr_dict[var_name] = round(discrete_points_cache[var_name][current_index], float_precision_for_keys)
+                    except (IndexError, KeyError, Exception) as e: logger.error(f"Error valor representativo estado {state_indices_tuple}, var '{var_name}': {e}. Saltando estado."); continue
 
-                    except IndexError as e: # Índice fuera de rango
-                         logger.error(f"Error de índice al obtener punto discreto para estado {state_indices_tuple}, var '{var_name}' (índice {i}): {e}. Saltando estado.")
-                         continue # Saltar al siguiente estado si hay error de índice
-                    except KeyError as e: # Variable no encontrada en cache (no debería pasar por precalculo)
-                         logger.error(f"Error de clave '{e}' al buscar puntos discretos cacheados para estado {state_indices_tuple}, var '{var_name}'. Saltando estado.")
-                         continue
-                    except Exception as e:
-                         logger.error(f"Error inesperado calculando valor representativo para estado {state_indices_tuple}, var '{var_name}': {e}. Saltando estado.", exc_info=True)
-                         continue
-
-                    # --- Fila para Q-Table ---
-                    try:
-                         q_values = np_q_table[state_indices_tuple]
-                         q_row = state_repr_dict.copy()
-                         for action_idx in range(action_dim):
-                              # Convertir a float estándar de Python
-                              q_row[f"action_{action_idx}"] = float(q_values[action_idx])
+                    try: # Q-Table row
+                         q_values = np_q_table[state_indices_tuple]; q_row = state_repr_dict.copy()
+                         for action_idx in range(action_dim): q_row[f"action_{action_idx}"] = float(q_values[action_idx])
                          q_table_list.append(q_row)
-                    except IndexError:
-                         logger.error(f"Error de índice accediendo a Q-table para estado {state_indices_tuple}. Saltando fila Q.")
-                         continue # Saltar si falla Q-table
+                    except IndexError: logger.error(f"IndexError fila Q estado {state_indices_tuple}. Saltando Q."); continue
 
-                    # --- Fila para Visit Counts ---
-                    try:
-                         visit_counts = np_visits[state_indices_tuple]
-                         visit_row = state_repr_dict.copy()
-                         for action_idx in range(action_dim):
-                              # Convertir a int estándar de Python
-                              visit_row[f"action_{action_idx}"] = int(visit_counts[action_idx])
+                    try: # Visit Counts row
+                         visit_counts = np_visits[state_indices_tuple]; visit_row = state_repr_dict.copy()
+                         for action_idx in range(action_dim): visit_row[f"action_{action_idx}"] = int(visit_counts[action_idx])
                          visit_count_list.append(visit_row)
-                    except IndexError:
-                         logger.error(f"Error de índice accediendo a Visit counts para estado {state_indices_tuple}. Saltando fila Visitas.")
-                         # Podríamos decidir continuar y guardar Q/Baseline si existen
-                         # continue
+                    except IndexError: logger.error(f"IndexError fila Visitas estado {state_indices_tuple}. Saltando Visitas.")
 
-                    # --- Fila para Baseline Table (si existe tabla) ---
-                    if np_baseline is not None:
+                    if np_baseline is not None: # Baseline row
                         try:
-                             baseline_value = np_baseline[state_indices_tuple]
-                             baseline_row = state_repr_dict.copy()
-                             baseline_row['baseline_value'] = float(baseline_value)
+                             baseline_row = state_repr_dict.copy(); baseline_row['baseline_value'] = float(np_baseline[state_indices_tuple])
                              baseline_list.append(baseline_row)
-                        except IndexError:
-                             logger.error(f"Error de índice accediendo a Baseline table para estado {state_indices_tuple}. Saltando fila Baseline.")
-                             # Continuar guardando Q/Visits si se pudo
+                        except IndexError: logger.error(f"IndexError fila Baseline estado {state_indices_tuple}. Saltando Baseline.")
 
-                # Almacenar las listas para esta ganancia
-                structured_q_tables[gain] = q_table_list
-                structured_visit_counts[gain] = visit_count_list
-                if np_baseline is not None:
-                    structured_baseline_tables[gain] = baseline_list
-
-                logger.debug(f"Estructuración para ganancia '{gain}' completa. {len(q_table_list)} estados procesados.")
+                structured_q_tables[gain] = q_table_list; structured_visit_counts[gain] = visit_count_list
+                if np_baseline is not None: structured_baseline_tables[gain] = baseline_list
+                logger.debug(f"Estructuración '{gain}' completa. {len(q_table_list)} estados.")
                 processed_gains += 1
-            else:
-                 # Loguear solo si se esperaba (está en gain_variables pero no en q_tables_np o ordered_state_vars)
-                 if gain in self.gain_variables:
-                      logger.debug(f"Saltando estructuración para ganancia '{gain}' (tablas no inicializadas o sin variables de estado asociadas).")
+            elif gain in self.gain_variables: logger.debug(f"Saltando estructuración '{gain}' (tablas no inicializadas/sin vars).")
 
-        if processed_gains == 0:
-             logger.warning("No se procesó ninguna ganancia al estructurar estado del agente. Verificar inicialización y configuración.")
-
-        logger.info("Estructuración del estado del agente completa.")
-        # Devolver siempre las tres claves principales, aunque estén vacías
-        return {
-            "q_tables": structured_q_tables,
-            "visit_counts": structured_visit_counts,
-            "baseline_tables": structured_baseline_tables
-        }
-
+        if processed_gains == 0: logger.warning("No se procesó ninguna ganancia al estructurar estado.")
+        logger.info("Estructuración estado agente completa.")
+        return {"q_tables": structured_q_tables, "visit_counts": structured_visit_counts, "baseline_tables": structured_baseline_tables}
 
     # --- Implementación Métodos Helper para Logging ---
-
     def get_q_values_for_state(self, agent_state_dict: Dict) -> Dict[str, np.ndarray]:
          """Obtiene Q-values[acciones] para el estado dado para ganancias con tabla Q."""
-         # ... (código sin cambios) ...
          q_values: Dict[str, np.ndarray] = {}
          for gain in self.gain_variables:
              q_vals_for_gain = np.full(self.num_actions, np.nan, dtype=np.float32)
@@ -621,29 +482,27 @@ class PIDQLearningAgent(RLAgent): # Implementar Interfaz RLAgent
                  state_indices = self.get_discrete_state_indices_tuple(agent_state_dict, gain)
                  if state_indices is not None:
                      try: q_vals_for_gain = self.q_tables_np[gain][state_indices].astype(np.float32)
-                     except IndexError: logger.warning(f"IndexError Q-values log ({gain}, {state_indices}).")
-                     except Exception as e: logger.warning(f"Error Q-values log ({gain}): {e}")
+                     except IndexError: pass # logger.warning(f"IndexError log Q ({gain}, {state_indices}).")
+                     except Exception: pass # logger.warning(f"Error log Q ({gain}): {e}")
              q_values[gain] = q_vals_for_gain
          return q_values
 
     def get_visit_counts_for_state(self, agent_state_dict: Dict) -> Dict[str, np.ndarray]:
         """Obtiene N(s,a)[acciones] para el estado dado para ganancias con tabla de visitas."""
-        # ... (código sin cambios) ...
         visit_counts: Dict[str, np.ndarray] = {}
         for gain in self.gain_variables:
-            visits_for_gain = np.full(self.num_actions, -1, dtype=np.int32)
+            visits_for_gain = np.full(self.num_actions, -1, dtype=np.int32) # Default -1 para indicar error/no tabla
             if gain in self.visit_counts_np:
                 state_indices = self.get_discrete_state_indices_tuple(agent_state_dict, gain)
                 if state_indices is not None:
                     try: visits_for_gain = self.visit_counts_np[gain][state_indices].astype(np.int32)
-                    except IndexError: logger.warning(f"IndexError Visit Counts log ({gain}, {state_indices}).")
-                    except Exception as e: logger.warning(f"Error Visit Counts log ({gain}): {e}")
+                    except IndexError: pass # logger.warning(f"IndexError log Visits ({gain}, {state_indices}).")
+                    except Exception: pass # logger.warning(f"Error log Visits ({gain}): {e}")
             visit_counts[gain] = visits_for_gain
         return visit_counts
 
     def get_baseline_value_for_state(self, agent_state_dict: Dict) -> Dict[str, float]:
         """Obtiene B(s) para el estado dado para ganancias con tabla Baseline."""
-        # ... (código sin cambios) ...
         baselines: Dict[str, float] = {}
         for gain in self.gain_variables:
             baseline_val = np.nan
@@ -651,15 +510,14 @@ class PIDQLearningAgent(RLAgent): # Implementar Interfaz RLAgent
                 state_indices = self.get_discrete_state_indices_tuple(agent_state_dict, gain)
                 if state_indices is not None:
                     try:
-                        baseline_val = float(self.baseline_tables_np[gain][state_indices])
-                        if not np.isfinite(baseline_val): baseline_val = np.nan
-                    except IndexError: logger.warning(f"IndexError Baseline log ({gain}, {state_indices}).")
-                    except Exception as e: logger.warning(f"Error Baseline log ({gain}): {e}")
+                        b_val = self.baseline_tables_np[gain][state_indices]
+                        baseline_val = float(b_val) if pd.notna(b_val) and np.isfinite(b_val) else np.nan
+                    except IndexError: pass # logger.warning(f"IndexError log Baseline ({gain}, {state_indices}).")
+                    except Exception: pass # logger.warning(f"Error log Baseline ({gain}): {e}")
             baselines[gain] = baseline_val
         return baselines
 
     def get_last_td_errors(self) -> Dict[str, float]:
          """Devuelve una copia del diccionario de TD errors del último paso de learn."""
-         # ... (código sin cambios) ...
          return {k: (float(v) if pd.notna(v) and np.isfinite(v) else np.nan)
                  for k, v in self._last_td_errors.items()}

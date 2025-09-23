@@ -37,11 +37,11 @@ environment:
       discount_factor: 0.98      # Q-learning discount factor (gamma)
       # Epsilon (Exploration Rate) Settings
       epsilon: 1.0               # Initial exploration rate
-      epsilon_decay: 0.9997122   # Decay factor per episode | 0.9997122 (8000)| 0.999846506108527 (15000)
+      epsilon_decay: 0.9997122  # Decay factor per episode | 0.9997122 (8000)| 0.999846506108527 (15000)
       epsilon_min: 0.1           # Minimum exploration rate
       use_epsilon_decay: true    # Enable/disable epsilon decay
       # Learning Rate (Alpha) Settings
-      learning_rate: 0.1         # Initial learning rate for Q-updates
+      learning_rate: 1.0         # Initial learning rate for Q-updates
       learning_rate_decay: 0.999425 # Decay factor per episode | 0.999425 (8000) | 0.999693035777428 (15000)
       learning_rate_min: 0.01    # Minimum learning rate
       use_learning_rate_decay: true # Enable/disable learning rate decay
@@ -57,15 +57,26 @@ environment:
         ki:                      {enabled: true, min: 0.0, max: 100.0, bins: 21}
         kd:                      {enabled: true, min: 0.0, max: 100.0, bins: 21}
 
-  # --- Reward Configuration (Nueva Estructura) ---
+  # --- Reward Configuration ---
   reward_setup:
-    # --- Agent Learning Strategy ---
-    learning_strategy: shadow_baseline # Choose: 'global', 'shadow_baseline', 'echo_baseline'
-    # --- Reward Calculation ---
+
+    # --- 1. Agent Learning Strategy Configuration ---
+    # Defines how the reward R_learn used for the agent's update is derived.
+    learning_strategy:
+      type: shadow_baseline # Type of learning strategy. Options: 'global', 'shadow_baseline', 'echo_baseline'
+      # Parameters specific to the chosen strategy:
+      strategy_params:
+        shadow_baseline: # Used if type is 'shadow_baseline'
+          beta: 0.2 # Learning rate for the baseline B(s) update
+          baseline_init_value: 0.0 # Initial value for B(s) entries
+        echo_baseline: # Used if type is 'echo_baseline'
+          # No specific parameters needed currently for Echo Baseline itself. Note: Echo Baseline requires a VirtualSimulator to be available.
+          pass
+
+    # --- 2. Reward Calculation Configuration ---
+    # Defines how the instantaneous reward R(s,a,s') is calculated per step.
     calculation:
-      # Determines how base reward R(s,a,s') is calculated per step.
-      # Options: 'gaussian', 'stability_calculator'
-      method: gaussian
+      method: stability_calculator # Method for reward calculation. Options: 'gaussian', 'stability_calculator'
       gaussian_params: # Used if method is 'gaussian'
         weights:
           angle: 1.0
@@ -79,18 +90,29 @@ environment:
           angular_velocity: 0.5
           cart_position: 1.0
           cart_velocity: 1.0
-          force: 1.0
+          force: 10.0
           time: 1.0
+      # Note: If method is 'stability_calculator', it uses the 'lambda' parameter from the *enabled* stability_calculator below.
 
-    # --- Stability Score (w_stab) Calculation ---
+    # --- 3. Stability Score (w_stab) Configuration ---
+    # Defines how the instantaneous stability score (w_stab) is calculated.
     stability_calculator:
-      enabled: true # Calculate w_stab? (Needed for Shadow baseline update)
-      # Choose type: 'ira_instantaneous' or 'simple_exponential'
-      type: simple_exponential
-      # --- Parameters specific to the chosen type ---
+      enabled: true # Calculate w_stab? (Required if learning_strategy.type is 'shadow_baseline')
+      type: simple_exponential # Type of stability calculator. Options: 'ira_instantaneous', 'simple_exponential'
+      simple_exponential_params: # Used if type is 'simple_exponential'
+      # Note: This calculator does not have a separate lambda for reward. If calculation.method is 'stability_calculator' with this type, the reward will be equal to w_stab.
+        lambda_weights: # Used for w_stab calculation
+            angle: 1.0
+            angular_velocity: 1.0
+            cart_position: 0.0
+            cart_velocity: 0.5
+        scales: # Used for w_stab calculation
+            angle: 0.1
+            angular_velocity: 0.5
+            cart_position: 1.0
+            cart_velocity: 1.0
       ira_params: # Used if type is 'ira_instantaneous'
-        # lambda: Sensitivity factor ONLY used if calculation.method is 'stability_calculator'
-        lambda: 1.0
+        lambda: 1.0 # lambda: Sensitivity factor ONLY used if calculation.method is 'stability_calculator'
         weights:
           angle: 1.0
           angular_velocity: 1.0
@@ -106,39 +128,20 @@ environment:
           angular_velocity: { mu: 0.0, sigma: 0.05 }
           cart_position:    { mu: 0.0, sigma: 0.5 }
           cart_velocity:    { mu: 0.0, sigma: 0.5 }
-      simple_exponential_params: # Used if type is 'simple_exponential'
-        lambda_weights:
-           angle: 1.0
-           angular_velocity: 1.0
-           cart_position: 0.0
-           cart_velocity: 0.5
-        scales:
-           angle: 0.1
-           angular_velocity: 0.5
-           cart_position: 1.0
-           cart_velocity: 1.0
 
-    # --- Strategy-Specific Parameters ---
-    strategy_params:
-      shadow_baseline: # Used if learning_strategy is 'shadow_baseline'
-        beta: 0.2
-        baseline_init_value: 0.0
-      echo_baseline: # Used if learning_strategy is 'echo_baseline'
-        # No specific parameters needed currently
-        pass
   # --- End of Reward Configuration ---
 
 # ========================================
 # Simulation Control & Termination
 # ========================================
 simulation:
-  episodes_per_file: 200
+  episodes_per_file: 250
   use_cart_limit: true
   cart_limit: 5.0
   use_angle_limit: true
   angle_limit: 1.0472
   save_agent_state: true
-  agent_state_save_frequency: 5000
+  agent_state_save_frequency: 2000
 
 # ========================================
 # Initial Conditions for Episodes
@@ -177,7 +180,7 @@ logging:
   filename: log_simulation_run.log      # Base name for the log file (will be placed in results folder)
   # List of levels to include in the file (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)
   # The lowest level specified determines the overall minimum level processed.
-  levels: [INFO, WARNING, ERROR, CRITICAL]
+  levels: # [DEBUG, INFO, WARNING, ERROR, CRITICAL]
   # How often (in episodes) to save the current log buffer to the file and clear the buffer
   # Set to 0 or negative to only save at the very end.
-  log_save_frequency: 1000
+  log_save_frequency: 100

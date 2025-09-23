@@ -1,87 +1,66 @@
+# visualization_runner.py
 import logging
 import pandas as pd
-import os # Para manejo de rutas opcional
+import os
 from typing import List, Dict, Optional
 
 # Importar el contenedor para resolver dependencias
 from di_container import Container
-# Importar PlotGenerator (real o placeholder)
-from di_container import PlotGenerator # Asume que está definido en di_container
+# --- IMPORT RENOMBRADO ---
+from utils.visualization_generator import VisualizationGenerator # Antes PlotGenerator
+# -------------------------
 
-# Obtener logger específico para este módulo
 logger = logging.getLogger(__name__)
 
 def run_visualizations(vis_config: Optional[Dict],
                        summary_data: List[Dict],
-                       all_episodes_data: List[Dict], # Datos detallados (lista vacía si se guarda por batch)
+                       all_episodes_data: List[Dict], # No usado directamente aquí
                        results_folder: str,
-                       container: Container): # Recibir contenedor
+                       container: Container):
     """
-    Orquesta la generación de gráficas basadas en la configuración y los datos.
-    Resuelve PlotGenerator desde el contenedor DI.
+    Orquesta la generación de gráficos usando VisualizationGenerator resuelto desde DI.
 
     Args:
         vis_config: Configuración de visualización cargada (puede ser None).
         summary_data: Lista de diccionarios de resumen por episodio.
-        all_episodes_data: Lista de datos detallados (puede estar vacía).
+        all_episodes_data: Lista de datos detallados (ignorado aquí, VisGen carga si necesita).
         results_folder: Carpeta donde se guardarán las figuras.
-        container: Instancia del contenedor DI para resolver PlotGenerator.
+        container: Instancia del contenedor DI para resolver VisualizationGenerator.
     """
     logger.info("--- Iniciando Generación de Visualizaciones ---")
 
-    # --- Validación Inicial ---
-    if not vis_config:
-        logger.info("Config visualización no proporcionada. Omitiendo visualizaciones.")
+    if not vis_config or not isinstance(vis_config, dict):
+        logger.info("Config visualización no válida/ausente. Omitiendo visualizaciones.")
         return
-    if not isinstance(vis_config, dict): # Doble check
-         logger.warning("vis_config no es un diccionario válido. Omitiendo visualizaciones.")
-         return
-    # 'enabled' flag ya fue chequeado en config_loader, no es necesario aquí de nuevo
-    # if not vis_config.get('enabled', False): ...
-
     plot_configs = vis_config.get('plots')
     if not plot_configs or not isinstance(plot_configs, list):
-        logger.warning("Config visualización sin sección 'plots' o no es lista. Omitiendo.")
+        logger.warning("Config visualización sin sección 'plots' válida. Omitiendo.")
         return
+    if not summary_data:
+        logger.warning("No hay datos de resumen disponibles para visualización (summary_df estará vacío).")
+        # VisGen podría aún generar plots basados en datos detallados si los carga
 
-    # Comprobar si hay datos para graficar (al menos resumen)
-    if not summary_data and not all_episodes_data:
-        logger.warning("No hay datos resumen ni detallados disponibles para visualización.")
-        # PlotGenerator podría intentar cargar desde archivos si se implementa así
-        # return # O dejar que PlotGenerator maneje la falta de datos
-
-    # Convertir resumen a DataFrame si existe
     summary_df = pd.DataFrame(summary_data) if summary_data else pd.DataFrame()
 
-    # --- Resolver y Ejecutar PlotGenerator ---
+    # --- Resolver y Ejecutar VisualizationGenerator ---
     try:
-        logger.info("Resolviendo PlotGenerator desde contenedor...")
-        # Resolver la dependencia usando el contenedor inyectado
-        plot_generator: PlotGenerator = container.resolve(PlotGenerator)
-        logger.info(f"PlotGenerator resuelto: {type(plot_generator).__name__}")
+        logger.info("Resolviendo VisualizationGenerator desde contenedor...")
+        # --- RESOLVER CLASE RENOMBRADA ---
+        vis_generator: VisualizationGenerator = container.resolve(VisualizationGenerator)
+        # ---------------------------------
+        logger.info(f"VisualizationGenerator resuelto: {type(vis_generator).__name__}")
 
-        # Llamar al método principal del generador de gráficos
-        logger.info("Ejecutando PlotGenerator.generate...")
-        # PlotGenerator debe definir qué argumentos necesita exactamente
-        plot_generator.generate(
-            plot_configs=plot_configs, # Pasar solo la lista de plots
+        logger.info("Ejecutando VisualizationGenerator.generate...")
+        vis_generator.generate(
+            plot_configs=plot_configs,
             summary_df=summary_df,
-            # Pasar la ruta a la carpeta, PlotGenerator carga datos detallados si los necesita
             results_folder=results_folder,
-            # Opcional: pasar vis_config completo si necesita más info
-            # vis_config=vis_config
-            # Opcional: pasar lista detallada (probablemente mejor no si es grande)
-            # detailed_data_list=all_episodes_data
+            # No pasamos all_episodes_data, VisGen lo carga si necesita
         )
         logger.info("--- Generación de Visualizaciones Completada ---")
 
-    except ValueError as e: # Error específico de resolución DI
-         logger.error(f"Error resolviendo PlotGenerator: {e}", exc_info=True)
-    except AttributeError as e: # Si PlotGenerator no tiene el método esperado
-         logger.error(f"Error: PlotGenerator resuelto no tiene método esperado (e.g., 'generate'): {e}", exc_info=True)
-    except FileNotFoundError as e: # Si PlotGenerator intenta cargar datos y no los encuentra
-         logger.error(f"Error de archivo durante visualización (¿datos detallados no encontrados?): {e}", exc_info=True)
-    except ImportError as e: # Si PlotGenerator requiere una librería no instalada (e.g., matplotlib)
-         logger.error(f"Error de importación durante visualización. Falta librería: {e}", exc_info=True)
-    except Exception as e:
-        logger.error(f"Error inesperado durante generación de visualizaciones: {e}", exc_info=True)
+    except ValueError as e: logger.error(f"Error resolviendo VisualizationGenerator: {e}", exc_info=True)
+    except AttributeError as e: logger.error(f"Error: VisualizationGenerator resuelto sin método 'generate': {e}", exc_info=True)
+    except FileNotFoundError as e: logger.error(f"Error de archivo durante visualización (¿datos detallados no encontrados?): {e}", exc_info=True)
+    except ImportError as e: logger.error(f"Error importación matplotlib/libs req. por VisualizationGenerator: {e}", exc_info=True)
+    except Exception as e: logger.error(f"Error inesperado durante generación de visualizaciones: {e}", exc_info=True)

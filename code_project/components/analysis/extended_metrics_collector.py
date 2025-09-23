@@ -34,9 +34,13 @@ class ExtendedMetricsCollector(MetricsCollector): # Implementar Interfaz
         """Registra un valor único para una métrica."""
         # ... (lógica mantenida, convierte None/inf a NaN) ...
         value_to_log: Any
-        if metric_value is None: value_to_log = np.nan
-        elif isinstance(metric_value, (float, int)) and not np.isfinite(metric_value): value_to_log = np.nan
-        else: value_to_log = metric_value
+        if metric_value is None: 
+            value_to_log = np.nan
+        elif isinstance(metric_value, (float, int)) and not np.isfinite(metric_value): 
+            value_to_log = np.nan
+        else: 
+            value_to_log = metric_value
+            logger.debug(f"ExtendedMetricsCollector -> log -> {metric_name} = {value_to_log}") #Usar solo con unos pocos episodios
 
         try:
             self.metrics[metric_name].append(value_to_log)

@@ -39,6 +39,7 @@ class PIDController(Controller): # Implementar Interfaz Controller
         self.kp, self.ki, self.kd = kp, ki, kd
         self.prev_kp = kp
         self.prev_ki = ki
+        self.prev_kd = kd
 
         # Estado interno del controlador - inicializar en reset_internal_state
         self.prev_error: float = 0.0
@@ -91,6 +92,7 @@ class PIDController(Controller): # Implementar Interfaz Controller
             # --- Actualizar estado interno para el siguiente paso ---
             self.prev_kp = self.kp
             self.prev_ki = self.ki
+            self.prev_kd = self.kd
             self.prev_error = error
             self.prev_integral_error = self.integral_error
 
@@ -136,4 +138,5 @@ class PIDController(Controller): # Implementar Interfaz Controller
         self.derivative_error = 0.0
         self.prev_kp = self.initial_kp
         self.prev_ki = self.initial_ki
+        self.prev_kd = self.initial_kd
         
