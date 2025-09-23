@@ -1,123 +1,183 @@
+# ========================================
+# Environment Configuration
+# ========================================
 environment:
   type: pendulum_environment
-  dt: 0.001
-  total_time: 5.0
-  decision_interval: 0.01
-  max_episodes: 20000
-  results_folder: 'results_history'
+  dt: 0.001                      # Simulation time step (s)
+  total_time: 5.0                # Total simulation time per episode (s)
+  decision_interval: 0.01        # Time between agent decisions (s) - must be multiple of dt
+  max_episodes: 10000            # Maximum number of episodes to run
+  results_folder: 'results_history' # Base folder for saving results
 
+  # --- Dynamic System ---
   system:
     type: inverted_pendulum
     params:
-      m1: 5.0
-      m2: 1.0
-      l: 2.0
-      g: 9.81
-      cr: 0.0
-      ca: 0.0
+      m1: 5.0                    # Mass of the cart (kg)
+      m2: 1.0                    # Mass of the pendulum bob (kg)
+      l: 2.0                     # Length of the pendulum rod (m)
+      g: 9.81                    # Acceleration due to gravity (m/s^2)
+      cr: 0.0                    # Damping coefficient of the cart (friction)
+      ca: 0.0                    # Damping coefficient of the pendulum pivot (friction)
 
+  # --- Controller ---
   controller:
     type: pid
     params:
-      kp: 10.0
-      ki: 0.0
-      kd: 0.0
-      setpoint: 0.0
+      kp: 10.0                   # Initial Proportional gain
+      ki: 0.0                    # Initial Integral gain
+      kd: 0.0                    # Initial Derivative gain
+      setpoint: 0.0              # Target value for the controlled variable (pendulum angle = 0 rad)
 
+  # --- Agent ---
   agent:
     type: pid_qlearning
     params:
-      num_actions: 3  # bajar, mantener, subir
-      discount_factor: 0.98
-      epsilon: 1.0
-      epsilon_decay: 0.999846506108527 #  0.9997122 (8000)| 0.999846506108527 (15000)
-      epsilon_min: 0.1
-      use_epsilon_decay: true
-      learning_rate: 1.0
-      learning_rate_decay: 0.999693035777428 # 0.999425 (8000) | 0.999693035777428 (15000)
-      learning_rate_min: 0.01
-      use_learning_rate_decay: true
+      num_actions: 3             # Number of actions per gain: 0=decrease, 1=maintain, 2=increase
+      discount_factor: 0.98      # Q-learning discount factor (gamma)
+      # Epsilon (Exploration Rate) Settings
+      epsilon: 1.0               # Initial exploration rate
+      epsilon_decay: 0.9997122   # Decay factor per episode | 0.9997122 (8000)| 0.999846506108527 (15000)
+      epsilon_min: 0.1           # Minimum exploration rate
+      use_epsilon_decay: true    # Enable/disable epsilon decay
+      # Learning Rate (Alpha) Settings
+      learning_rate: 1.0         # Initial learning rate for Q-updates
+      learning_rate_decay: 0.999425 # Decay factor per episode | 0.999425 (8000) | 0.999693035777428 (15000)
+      learning_rate_min: 0.01    # Minimum learning rate
+      use_learning_rate_decay: true # Enable/disable learning rate decay
+      # Agent State Discretization Configuration
       state_config:
-        # --- Base State Variables ---
-        angle: # Renamed from pendulum_angle for consistency in agent
-          enabled: False
-          min: -0.0349066 # Approx 5 deg
-          max: 0.0349066 # Approx 5 deg
-          bins: 3 # Low, Mid, High
-        angular_velocity: # Renamed from pendulum_velocity
+        # Base State Variables
+        angle:                   {enabled: false, min: -0.0349, max: 0.0349, bins: 3}
+        angular_velocity:        {enabled: false, min: -0.61, max: 0.61, bins: 6}
+        cart_position:           {enabled: false, min: -1.0, max: 1.0, bins: 3}
+        cart_velocity:           {enabled: false, min: -1.0, max: 1.0, bins: 3}
+        # Gain State Variables
+        kp:                      {enabled: true, min: 0.0, max: 100.0, bins: 21}
+        ki:                      {enabled: true, min: 0.0, max: 100.0, bins: 21}
+        kd:                      {enabled: true, min: 0.0, max: 100.0, bins: 21}
+
+  # --- Reward Configuration (Nueva Estructura) ---
+  reward_setup:
+    # --- Agent Learning Strategy ---
+    learning_strategy: shadow_baseline # Choose: 'global', 'shadow_baseline', 'echo_baseline'
+    # --- Reward Calculation ---
+    calculation:
+      # Determines how base reward R(s,a,s') is calculated per step.
+      # Options: 'gaussian', 'stability_calculator'
+      method: stability_calculator
+      gaussian_params: # Used if method is 'gaussian'
+        weights:
+          angle: 1.0
+          angular_velocity: 1.0
+          cart_position: 0.0
+          cart_velocity: 0.5
+          force: 0.5
+          time: 0.0
+        scales:
+          angle: 0.1
+          angular_velocity: 0.5
+          cart_position: 1.0
+          cart_velocity: 1.0
+          force: 10.0
+          time: 1.0
+
+    # --- Stability Score (w_stab) Calculation ---
+    stability_calculator:
+      enabled: true # Calculate w_stab? (Needed for Shadow baseline update)
+      # Choose type: 'ira_instantaneous' or 'simple_exponential'
+      type: ira_instantaneous
+      # --- Parameters specific to the chosen type ---
+      ira_params: # Used if type is 'ira_instantaneous'
+        # lambda: Sensitivity factor ONLY used if calculation.method is 'stability_calculator'
+        lambda: 1.5
+        weights:
+          angle: 1.0
+          angular_velocity: 1.0
+          cart_position: 0.0
+          cart_velocity: 0.5
+        z_score_epsilon: 1.0e-6
+        adaptive_stats:
           enabled: false
-          min: -0.61
-          max: 0.61
-          bins: 6
-        cart_position:
-           enabled: false
-           min: -1.0
-           max: 1.0
-           bins: 3
-        cart_velocity:
-            enabled: false
-            min: -1.0
-            max: 1.0
-            bins: 3
-        # --- Gain State Variables (Part of the state FOR EACH Q-table) ---
-        kp:
-          enabled: true
-          min: 0.0
-          max: 100.0
-          bins: 21
-        ki:
-          enabled: true
-          min: 0.0
-          max: 100.0
-          bins: 21
-        kd:
-          enabled: true
-          min: 0.0
-          max: 100.0
-          bins: 21
+          min_episode: 1000
+          min_sigma: 1.0e-4
+        initial_reference_stats:
+          angle:            { mu: 0.0, sigma: 0.05 }
+          angular_velocity: { mu: 0.0, sigma: 0.05 }
+          cart_position:    { mu: 0.0, sigma: 0.5 }
+          cart_velocity:    { mu: 0.0, sigma: 0.5 }
+      simple_exponential_params: # Used if type is 'simple_exponential'
+        lambda_weights:
+           angle: 1.0
+           angular_velocity: 1.0
+           cart_position: 0.0
+           cart_velocity: 0.5
+        scales:
+           angle: 0.1
+           angular_velocity: 0.5
+           cart_position: 1.0
+           cart_velocity: 1.0
 
-  reward:
-    type: gaussian
-    params:
-      weights:
-        stability: 1.0
-        force: 0.5
-        cart: 1.0
-        time: 0.0 #0.5
-      scales:
-        angle: 1.0 #0.035 
-        angular_velocity: 1.0 #0.5
-        cart_position: 1.0
-        cart_velocity: 1.0
-        force: 1000.0 #1.0
-        time: 1.0 
+    # --- Strategy-Specific Parameters ---
+    strategy_params:
+      shadow_baseline: # Used if learning_strategy is 'shadow_baseline'
+        beta: 0.2
+        baseline_init_value: 0.0
+      echo_baseline: # Used if learning_strategy is 'echo_baseline'
+        # No specific parameters needed currently
+        pass
+  # --- End of Reward Configuration ---
 
+# ========================================
+# Simulation Control & Termination
+# ========================================
 simulation:
   episodes_per_file: 200
   use_cart_limit: true
   cart_limit: 5.0
   use_angle_limit: true
-  angle_limit: 1.0472  # pi/3 radianes
-  save_agent_state: true # Set to true to save Q-tables and visit counts
-  agent_state_save_frequency: 5000 # Save agent state every N episodes
+  angle_limit: 1.0472
+  save_agent_state: true
+  agent_state_save_frequency: 5000
 
+# ========================================
+# Initial Conditions for Episodes
+# ========================================
 initial_conditions:
-  x0: [0.0, 0.0, 0.0349066, 0.0] # [posición carro, vel. carro, ángulo péndulo, vel. angular péndulo]  0.0349066(2°) 0.0873 (5°) 0.1746 (10°)
+  x0: [0.0, 0.0, 0.0349066, 0.0] # 0.0349066(2°) 0.0873 (5°) 0.1746 (10°)
 
+# ========================================
+# PID Adaptation Specifics
+# ========================================
 pid_adaptation:
-  gain_step: 5.0 # Step size if variable_step is false
-  # Example if variable_step were true:
-  # gain_step:
-  #   kp: 5.0
-  #   ki: 1.0
-  #   kd: 0.5
+  gain_step: 5.0
+  # gain_step: {kp: 5.0, ki: 1.0, kd: 0.5} # Example if variable_step=true
   variable_step: false
-  reset_gains_each_episode: true # Reset PID gains at start of each episode
+  reset_gains_each_episode: true
 
+# ========================================
+# Stabilization Criteria
+# ========================================
 stabilization_criteria:
   angle_threshold: 0.001
   velocity_threshold: 0.005
 
+# ========================================
+# Visualization Settings
+# ========================================
 visualization:
-  enabled: true # Master switch to enable/disable all automatic plotting
-  config_file: sub_config_visualization.yaml # Path relative to main config file
+  enabled: true
+  config_file: sub_config_visualization.yaml
+
+# ========================================
+# Logging Configuration
+# ========================================
+#logging:
+#  log_to_file: true                 # Enable/disable logging to file
+#  filename: simulation_run.log      # Base name for the log file (will be placed in results folder)
+#  # List of levels to include in the file (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)
+#  # The lowest level specified determines the overall minimum level processed.
+#  levels: [INFO, WARNING, ERROR, CRITICAL]
+#  # How often (in episodes) to save the current log buffer to the file and clear the buffer
+#  # Set to 0 or negative to only save at the very end.
+#  log_save_frequency: 1000

@@ -355,7 +355,7 @@ plots:
       cmin: null
       cmax: 50000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 500 # Number of bins for histogram2d
+      bins: 2000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
       filter_termination_reason: null
@@ -388,7 +388,7 @@ plots:
       cmin: null
       cmax: 50000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 1000 # Number of bins for histogram2d
+      bins: 2000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
       filter_termination_reason: null
@@ -421,7 +421,7 @@ plots:
       cmin: null
       cmax: null
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 1000 # Number of bins for histogram2d
+      bins: 2000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
       filter_termination_reason: ['stabilized']

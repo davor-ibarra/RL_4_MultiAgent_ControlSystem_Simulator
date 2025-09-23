@@ -1,74 +1,70 @@
 import logging
+from typing import Dict, Any
+from interfaces.rl_agent import RLAgent
+from interfaces.reward_strategy import RewardStrategy # Import Strategy Interface
+
+# Import specific agent classes
 from components.agents.pid_qlearning_agent import PIDQLearningAgent
+# Import other agent types here if you add them later
+# from components.agents.other_agent import OtherAgent
 
 class AgentFactory:
+    """
+    Factory class for creating Reinforcement Learning agent instances.
+    """
     @staticmethod
-    def create_agent(agent_config, config): # Pasamos config completo
+    def create_agent(agent_type: str, agent_params: Dict[str, Any]) -> RLAgent:
         """
-        Creates an agent instance based on configuration.
+        Creates an agent instance based on the specified type and parameters.
 
         Args:
-            agent_config (dict): The 'agent' section from the config.
-            config (dict): The full configuration dictionary.
+            agent_type (str): The type of agent to create (e.g., 'pid_qlearning').
+            agent_params (Dict[str, Any]): A dictionary containing all necessary parameters
+                                           for the agent's constructor, **including** the
+                                           'reward_strategy_instance'.
 
         Returns:
-            An instance of the specified agent.
+            An instance of an RLAgent subclass.
 
         Raises:
-            ValueError: If the agent_type is not recognized or params are missing.
+            ValueError: If the agent type is unknown or required parameters are missing.
+            AttributeError: If the parameters dict is missing crucial keys.
         """
-        agent_type = agent_config.get('type')
-        params = agent_config.get('params', {})
-        env_config = config.get('environment', {}) # Acceso a dt, etc.
-        reward_config = env_config.get('reward', {}) # Acceso a config de recompensa
-        pid_adapt_config = config.get('pid_adaptation', {}) # Acceso a gain_step
-
         logging.info(f"Attempting to create agent of type: {agent_type}")
 
-        if agent_type == 'pid_qlearning':
-            try:
-                # Extract necessary params safely
-                state_config = params['state_config']
-                num_actions = params['num_actions']
-                gain_step = pid_adapt_config['gain_step']
-                variable_step = pid_adapt_config['variable_step']
-                discount_factor = params['discount_factor']
-                epsilon = params['epsilon']
-                epsilon_min = params['epsilon_min']
-                epsilon_decay = params['epsilon_decay']
-                learning_rate = params['learning_rate']
-                learning_rate_min = params['learning_rate_min']
-                learning_rate_decay = params['learning_rate_decay']
-                use_epsilon_decay = params['use_epsilon_decay']
-                use_learning_rate_decay = params['use_learning_rate_decay']
+        # Extract the mandatory reward strategy instance
+        try:
+            reward_strategy = agent_params.pop('reward_strategy_instance')
+            if not isinstance(reward_strategy, RewardStrategy):
+                raise TypeError("Provided 'reward_strategy_instance' is not a valid RewardStrategy object.")
+        except KeyError:
+            logging.error("CRITICAL: 'reward_strategy_instance' not found in agent_params.")
+            raise ValueError("Agent creation requires 'reward_strategy_instance' in parameters.") from None
+        except TypeError as e:
+            logging.error(f"CRITICAL: Invalid reward strategy instance provided: {e}")
+            raise
 
-                # --- NEW: Extract reward mode and shadow params ---
-                reward_mode = reward_config.get('reward_mode', 'global')
-                shadow_params = reward_config.get('shadow_baseline_params', {}) # Get shadow sub-dict
+        try:
+            if agent_type == 'pid_qlearning':
+                # Pass the extracted strategy and the rest of the params
+                agent = PIDQLearningAgent(reward_strategy=reward_strategy, **agent_params)
+            # Add other agent types here
+            # elif agent_type == 'other_agent':
+            #     agent = OtherAgent(reward_strategy=reward_strategy, **agent_params)
+            else:
+                raise ValueError(f"Unknown agent type specified: {agent_type}")
 
-                return PIDQLearningAgent(
-                    state_config=state_config,
-                    num_actions=num_actions,
-                    gain_step=gain_step,
-                    variable_step=variable_step,
-                    discount_factor=discount_factor,
-                    epsilon=epsilon,
-                    epsilon_min=epsilon_min,
-                    epsilon_decay=epsilon_decay,
-                    learning_rate=learning_rate,
-                    learning_rate_min=learning_rate_min,
-                    learning_rate_decay=learning_rate_decay,
-                    use_epsilon_decay=use_epsilon_decay,
-                    use_learning_rate_decay=use_learning_rate_decay,
-                    # --- Pass new params ---
-                    reward_mode=reward_mode,
-                    shadow_baseline_params=shadow_params
-                )
-            except KeyError as e:
-                 logging.error(f"Missing required parameter for PIDQLearningAgent in config: {e}")
-                 raise ValueError(f"Missing required parameter for PIDQLearningAgent: {e}") from e
-            except Exception as e:
-                 logging.error(f"Unexpected error creating PIDQLearningAgent: {e}", exc_info=True)
-                 raise
+            logging.info(f"Successfully created agent: {type(agent).__name__}")
+            return agent
 
-        raise ValueError(f"Agent type '{agent_type}' not recognized.")
+        except TypeError as e:
+             # Catches errors like missing arguments in the specific agent's __init__
+             logging.error(f"Type error creating agent '{agent_type}'. Check configuration parameters against agent constructor: {e}", exc_info=True)
+             raise ValueError(f"Parameter mismatch for agent '{agent_type}'.") from e
+        except KeyError as e:
+             logging.error(f"Missing parameter key expected by agent '{agent_type}': {e}", exc_info=True)
+             raise ValueError(f"Missing parameter for agent '{agent_type}'.") from e
+        except Exception as e:
+            logging.error(f"Failed to create agent of type '{agent_type}': {e}", exc_info=True)
+            raise RuntimeError(f"Failed to create agent '{agent_type}'") from e
+

@@ -12,3 +12,7 @@ class Controller(ABC):
     @abstractmethod
     def reset(self):
         pass
+
+    @abstractmethod
+    def reset_internal_state(self):
+        pass
