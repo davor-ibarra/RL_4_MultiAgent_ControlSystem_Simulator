@@ -1,5 +1,5 @@
 import numpy as np
-from interfaces.metrics_analyzer import MetricsAnalyzer
+from code_project.deprecated.v5_code.metrics_analyzer import MetricsAnalyzer
 
 class PendulumMetricsAnalyzer(MetricsAnalyzer):
     def evaluate_performance(self, metrics):

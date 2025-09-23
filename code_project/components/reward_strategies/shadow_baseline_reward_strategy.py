@@ -1,89 +1,146 @@
 from interfaces.reward_strategy import RewardStrategy
-from typing import Dict, Any, TYPE_CHECKING
+from typing import Dict, Any, Optional, TYPE_CHECKING
 import logging
 import numpy as np
+import pandas as pd # Para isnull/isna
 
+# Evitar importación circular
 if TYPE_CHECKING:
     from components.agents.pid_qlearning_agent import PIDQLearningAgent
 
+# Obtener logger específico para este módulo
+logger = logging.getLogger(__name__)
+
 class ShadowBaselineRewardStrategy(RewardStrategy):
     """
-    Calculates reward based on the difference from a learned baseline B(s).
-    Updates the baseline table B(s) when the 'maintain' action is taken.
+    Estrategia de Recompensa Shadow Baseline.
+    Calcula la recompensa para el aprendizaje como R_real - B(s), donde B(s) es
+    un baseline aprendido para cada estado.
+    Actualiza B(s) solo cuando la acción para la ganancia específica es 'maintain'
+    Y las acciones para las OTRAS ganancias NO son 'maintain'.
+    La actualización de B(s) usa un factor beta y la puntuación de estabilidad w_stab.
     """
     def __init__(self, beta: float = 0.1):
-        self.beta = beta
-        logging.info(f"ShadowBaselineRewardStrategy initialized with beta={self.beta}")
-        self.all_gains = ['kp', 'ki', 'kd']
+        """
+        Inicializa la estrategia Shadow Baseline.
+
+        Args:
+            beta (float): Tasa de aprendizaje para actualizar el baseline B(s).
+        """
+        if not isinstance(beta, (float, int)) or not (0 <= beta <= 1):
+             logger.warning(f"Beta ({beta}) inválido para ShadowBaseline. Usando 0.1 por defecto.")
+             self.beta = 0.1
+        else:
+             self.beta = beta
+        self.all_gains = ['kp', 'ki', 'kd'] # Lista de todas las ganancias posibles
+        logger.info(f"ShadowBaselineRewardStrategy inicializada con beta={self.beta}")
+
 
     def compute_reward_for_learning(
         self,
-        gain: str,
-        interval_reward: float,
-        avg_w_stab: float,
-        reward_dict: Dict[str, float], # Ignored
-        agent_state_dict: Dict[str, Any], # Ignored (indices used)
-        agent: 'PIDQLearningAgent',
-        action_taken_idx: int,
-        current_state_indices: tuple,
-        actions_dict: Dict[str, int],
+        # --- Context ---
+        gain: str,                          # Ganancia actual ('kp', 'ki', 'kd')
+        agent: 'PIDQLearningAgent',         # Instancia del agente para acceder a B(s)
+        # --- State ---
+        current_agent_state_dict: Dict[str, Any], # Ignorado (se usan índices)
+        current_state_indices: tuple,             # Índices S para acceder a B(s)
+        # --- Action ---
+        actions_dict: Dict[str, int],             # Acciones {'kp':a_kp, ...} tomadas
+        action_taken_idx: int,                    # Acción a_g para la ganancia 'gain'
+        # --- Raw Reward/Stability ---
+        interval_reward: float,                   # R_real acumulada en el intervalo
+        avg_w_stab: float,                        # w_stab promedio en el intervalo
+        # --- Pre-calculated Differential Rewards ---
+        reward_dict: Optional[Dict[str, float]],  # Ignorado aquí
+        # --- Optional ---
         **kwargs
     ) -> float:
-        """ Calculates differential reward and updates baseline if action is 'maintain'. """
-        reward_for_q_update = 0.0
+        """
+        Calcula R_learn para Q-update y actualiza B(s) si se cumplen las condiciones.
+        Si acción para 'gain' es 'maintain' y las otras no -> Actualiza B(s), R_learn = R_real
+        En otro caso -> No actualiza B(s), R_learn = R_real - B(s)
+        """
+        reward_for_q_update: float = 0.0 # Valor por defecto
 
-        # Check if baseline table exists for this gain
+        # Validar entradas necesarias
+        if not isinstance(avg_w_stab, (float, int)) or not np.isfinite(avg_w_stab):
+             logger.warning(f"ShadowBaseline: avg_w_stab inválido ({avg_w_stab}) para ganancia '{gain}'. Usando 1.0.")
+             avg_w_stab = 1.0
+        if not isinstance(interval_reward, (float, int)) or not np.isfinite(interval_reward):
+             logger.warning(f"ShadowBaseline: interval_reward inválido ({interval_reward}) para ganancia '{gain}'. Usando 0.0.")
+             # Si R_real es inválido, ¿qué hacer? Devolver 0 puede ser lo más seguro.
+             return 0.0
+
+        # Comprobar si existe tabla Baseline para esta ganancia en el agente
         if gain not in agent.baseline_tables_np:
-            logging.warning(f"Baseline table for gain '{gain}' not found in agent. Using global reward {interval_reward}.")
+            logger.warning(f"ShadowBaseline: Tabla Baseline para ganancia '{gain}' no encontrada en agente. Usando R_real ({interval_reward:.4f}) como recompensa.")
             return interval_reward
 
         try:
             baseline_table = agent.baseline_tables_np[gain]
-            baseline_value = baseline_table[current_state_indices]
+            # Obtener valor actual de B(s)
+            baseline_value = float(baseline_table[current_state_indices])
+            # Validar baseline_value (puede ser NaN si tabla se corrompió?)
+            if pd.isna(baseline_value) or not np.isfinite(baseline_value):
+                 logger.warning(f"ShadowBaseline: Valor B(s) inválido ({baseline_value}) para ganancia '{gain}', estado {current_state_indices}. Usando B(s)=0.")
+                 baseline_value = 0.0
 
-            # --- Implementación de lógica estricta para actualizar B(s) ---
+            # --- Determinar si se debe actualizar B(s) ---
             update_baseline = False
-            if action_taken_idx == 1: # Action for the current gain is 'maintain'
-                # Check actions for the *other* two gains
+            if action_taken_idx == 1: # Acción para 'gain' es 'maintain'
+                # Verificar acciones de las OTRAS ganancias
                 other_gains = [g for g in self.all_gains if g != gain]
-                other_actions_not_maintain = True
+                is_isolated_maintain = True # Asumir que sí hasta encontrar lo contrario
                 for other_gain in other_gains:
                     other_action = actions_dict.get(other_gain)
-                    if other_action == 1: # If any other action is also 'maintain'
-                        other_actions_not_maintain = False
+                    if other_action == 1: # Si OTRA acción también es 'maintain'
+                        is_isolated_maintain = False
                         break
-                    elif other_action is None: # Handle case where action is missing (should not happen ideally)
-                         logging.warning(f"ShadowBaseline: Missing action for other gain '{other_gain}' in actions_dict: {actions_dict}. Cannot confirm isolation.")
-                         other_actions_not_maintain = False # Treat as non-isolated if data missing
+                    elif other_action is None: # Acción faltante
+                         logger.warning(f"ShadowBaseline: Acción faltante para ganancia '{other_gain}' en actions_dict: {actions_dict}. No se puede confirmar aislamiento.")
+                         is_isolated_maintain = False
                          break
 
-                if other_actions_not_maintain:
-                    update_baseline = True # Condition met: update B(s) for 'gain'
+                if is_isolated_maintain:
+                    update_baseline = True # Condición cumplida
 
-            # --- Calculate reward and update baseline based on the condition ---
+            # --- Calcular R_learn y Actualizar B(s) (si aplica) ---
             if update_baseline:
-                # Update the baseline value B(s)
-                # Asegurar que avg_w_stab es un número válido
-                valid_w_stab = avg_w_stab if isinstance(avg_w_stab, (float, int, np.number)) and not np.isnan(avg_w_stab) else 1.0
-                delta_B = self.beta * valid_w_stab * (interval_reward - baseline_value)
-                baseline_table[current_state_indices] = baseline_value + delta_B
-                # For Q-update, use the original interval reward when isolating 'maintain'
+                # Actualizar B(s) usando R_real
+                # delta_B = beta * w_stab * (R_real - B(s))
+                delta_B = self.beta * avg_w_stab * (interval_reward - baseline_value)
+                new_baseline = baseline_value + delta_B
+
+                # Actualizar tabla B(s) (asegurando que no sea NaN/inf)
+                if pd.notna(new_baseline) and np.isfinite(new_baseline):
+                     baseline_table[current_state_indices] = new_baseline
+                     # logger.debug(f"ShadowBaseline: B(s) actualizado para '{gain}' {current_state_indices}. "
+                     #              f"B_prev={baseline_value:.4f}, R_real={interval_reward:.4f}, w_stab={avg_w_stab:.4f}, delta={delta_B:.4f} -> B_new={new_baseline:.4f}")
+                else:
+                     logger.warning(f"ShadowBaseline: Nuevo valor B(s) inválido ({new_baseline}) para '{gain}'. No se actualizó la tabla.")
+
+                # Para el Q-update en este caso, usar R_real directamente
                 reward_for_q_update = interval_reward
-                # logging.debug(f"ShadowBaseline: Updated B(s) for gain '{gain}', state {current_state_indices}. R_Q={interval_reward:.4f}")
+                # logger.debug(f"ShadowBaseline: Usando R_learn = R_real = {reward_for_q_update:.4f} para '{gain}' (B(s) actualizado).")
+
             else:
-                # Use the differential reward R_real - B(s) for Q-update
+                # No actualizar B(s), usar R_learn = R_real - B(s)
                 reward_for_q_update = interval_reward - baseline_value
-                # logging.debug(f"ShadowBaseline: Using R_diff for gain '{gain}', state {current_state_indices}. R_Q={reward_for_q_update:.4f}")
+                # logger.debug(f"ShadowBaseline: Usando R_learn = R_real - B(s) = {interval_reward:.4f} - {baseline_value:.4f} = {reward_for_q_update:.4f} para '{gain}'.")
 
         except IndexError:
-            logging.error(f"IndexError accessing baseline table '{gain}' for indices {current_state_indices}. Shape: {baseline_table.shape}. Using global reward {interval_reward}.")
+            logger.error(f"ShadowBaseline: IndexError accediendo a tabla Baseline '{gain}' para índices {current_state_indices}. Shape: {baseline_table.shape}. Usando R_real.")
             reward_for_q_update = interval_reward
         except KeyError as e:
-             logging.error(f"KeyError accessing actions_dict in ShadowBaseline for gain '{gain}': {e}. Actions: {actions_dict}. Using global reward {interval_reward}.")
+             logger.error(f"ShadowBaseline: KeyError accediendo a actions_dict para determinar aislamiento para ganancia '{gain}': {e}. Actions: {actions_dict}. Usando R_real.")
              reward_for_q_update = interval_reward
         except Exception as e:
-            logging.error(f"Unexpected error in ShadowBaseline strategy for gain '{gain}': {e}. Using global reward {interval_reward}.", exc_info=True)
+            logger.error(f"ShadowBaseline: Error inesperado calculando recompensa/actualizando baseline para ganancia '{gain}': {e}. Usando R_real.", exc_info=True)
             reward_for_q_update = interval_reward
 
-        # Asegurar que la recompensa no sea NaN
-        return float(reward_for_q_update) if not np.isnan(reward_for_q_update) else 0.0
+        # Asegurar que la recompensa final no sea NaN/inf
+        if pd.isna(reward_for_q_update) or not np.isfinite(reward_for_q_update):
+             logger.warning(f"ShadowBaseline: R_learn final es inválido ({reward_for_q_update}). Devolviendo 0.0.")
+             return 0.0
+        else:
+             return float(reward_for_q_update)

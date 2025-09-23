@@ -60,12 +60,12 @@ environment:
   # --- Reward Configuration (Nueva Estructura) ---
   reward_setup:
     # --- Agent Learning Strategy ---
-    learning_strategy: shadow_baseline # Choose: 'global', 'shadow_baseline', 'echo_baseline'
+    learning_strategy: global # Choose: 'global', 'shadow_baseline', 'echo_baseline'
     # --- Reward Calculation ---
     calculation:
       # Determines how base reward R(s,a,s') is calculated per step.
       # Options: 'gaussian', 'stability_calculator'
-      method: stability_calculator
+      method: gaussian
       gaussian_params: # Used if method is 'gaussian'
         weights:
           angle: 1.0
@@ -172,12 +172,12 @@ visualization:
 # ========================================
 # Logging Configuration
 # ========================================
-#logging:
-#  log_to_file: true                 # Enable/disable logging to file
-#  filename: simulation_run.log      # Base name for the log file (will be placed in results folder)
-#  # List of levels to include in the file (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)
-#  # The lowest level specified determines the overall minimum level processed.
-#  levels: [INFO, WARNING, ERROR, CRITICAL]
-#  # How often (in episodes) to save the current log buffer to the file and clear the buffer
-#  # Set to 0 or negative to only save at the very end.
-#  log_save_frequency: 1000
+logging:
+  log_to_file: true                 # Enable/disable logging to file
+  filename: simulation_run.log      # Base name for the log file (will be placed in results folder)
+  # List of levels to include in the file (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  # The lowest level specified determines the overall minimum level processed.
+  levels: [INFO, WARNING, ERROR, CRITICAL]
+  # How often (in episodes) to save the current log buffer to the file and clear the buffer
+  # Set to 0 or negative to only save at the very end.
+  log_save_frequency: 1000
