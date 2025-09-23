@@ -27,7 +27,7 @@ from datetime import datetime
 
 # Importar funciones desde app_utils.py
 try:
-    from app_utils import (
+    from code_project.deprecated.app_utils import (
         load_folder_structure,
         load_metadata,
         load_summary_data,

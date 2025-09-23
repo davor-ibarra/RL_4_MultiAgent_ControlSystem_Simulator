@@ -3,7 +3,7 @@ from typing import Any, Tuple, Dict # For type hinting
 
 class Environment(ABC):
     @abstractmethod
-    def step(self, actions: Dict[str, Any]) -> Tuple[Any, float, Any]:
+    def step(self, actions: Dict[str, Any]) -> Tuple[Any, Tuple[float, float], Any]:
         """
         Applies actions to the environment, advances one timestep, calculates reward.
 
@@ -13,7 +13,8 @@ class Environment(ABC):
         Returns:
             A tuple containing:
             - next_state: The state of the environment after the step.
-            - reward: The reward received during the step.
+            - reward_stability_tuple (Tuple[float, float]): The reward and stability score
+                                                            calculated for the step (reward, w_stab).
             - info: Additional information (e.g., control force applied).
         """
         pass
@@ -45,9 +46,3 @@ class Environment(ABC):
             (angle_exceeded, cart_exceeded, stabilized).
         """
         pass
-
-    # select_action is usually handled directly by the agent, no need for abstract method here
-    # unless the environment itself modifies or interprets agent actions.
-    # @abstractmethod
-    # def select_action(self, state: Any) -> Dict[str, Any]:
-    #     pass

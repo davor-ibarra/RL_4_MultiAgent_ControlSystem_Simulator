@@ -28,7 +28,7 @@ import glob # For finding agent state files
 
 # Import utility functions
 try:
-    from app_utils import (
+    from code_project.deprecated.app_utils import (
         load_folder_structure,
         load_metadata,
         load_summary_data,
