@@ -46,7 +46,7 @@ def _safe_agg(series: Optional[pd.Series], agg_func: Callable) -> Any:
             return result # Devolver resultado original si la conversión falla
     except Exception as e:
         # Loguear advertencia si la agregación falla
-        logger.warning(f"Error aplicando agregación '{agg_func.__name__}' a serie (primeros elems: {series.head().tolist()}...): {e}")
+        logger.warning(f"[DataProcessing_safe_agg] Error aplicando agregación '{agg_func.__name__}' a serie (primeros elems: {series.head().tolist()}...): {e}")
         return np.nan
 
 def get_last_or_value(data_dict: Dict[str, List[Any]], key: str, default: Any = np.nan) -> Any:
@@ -112,10 +112,10 @@ def summarize_episode(episode_data: Dict[str, List[Any]]) -> Dict[str, Any]:
     """
     # 2.3: Validar input básico
     if not isinstance(episode_data, dict):
-        logger.error("summarize_episode recibió datos no diccionario. Devolviendo resumen vacío.")
+        logger.error("[DataProcessing_summarize_episode] summarize_episode recibió datos no diccionario. Devolviendo resumen vacío.")
         return {'episode': -1, 'error': 'Invalid input data format'}
     if not episode_data:
-         logger.warning("summarize_episode recibió diccionario vacío. Devolviendo resumen vacío.")
+         logger.warning("[DataProcessing_summarize_episode] summarize_episode recibió diccionario vacío. Devolviendo resumen vacío.")
          return {'episode': -1, 'warning': 'Empty input data'}
 
     summary: Dict[str, Any] = {}
@@ -175,7 +175,7 @@ def summarize_episode(episode_data: Dict[str, List[Any]]) -> Dict[str, Any]:
         try:
             s = pd.Series(values)
         except Exception as e:
-            logger.warning(f"Error creando Serie Pandas para métrica '{metric}' en ep {summary['episode']}. Saltando agregación. Error: {e}")
+            logger.warning(f"[DataProcessing_summarize_episode] Error creando Serie Pandas para métrica '{metric}' en ep {summary['episode']}. Saltando agregación. Error: {e}")
             summary[f'{metric}_mean'] = np.nan; summary[f'{metric}_std'] = np.nan
             summary[f'{metric}_min'] = np.nan; summary[f'{metric}_max'] = np.nan
             continue
@@ -202,6 +202,45 @@ def summarize_episode(episode_data: Dict[str, List[Any]]) -> Dict[str, Any]:
         if f'{metric}_mean' not in summary:
             # Usar el helper para obtener el último valor válido
             summary[metric] = get_last_or_value(episode_data, metric, np.nan)
+
+    
+    # --- Early Termination Metrics (últimos valores) ---
+    agent_vars_to_summarize = []
+    
+    agent_vars_to_summarize = episode_data.get('_agent_defining_vars', []) # Obtenerla directamente
+
+    if not agent_vars_to_summarize:
+        logger.debug("[DataProcessing_summarize_episode] No se pudieron inferir 'agent_defining_vars' de las claves de episode_data para resumir métricas ET.")
+    else:
+        logger.debug(f"[DataProcessing_summarize_episode] Resumiendo métricas ET para agent_vars: {agent_vars_to_summarize}")
+
+
+    for gain_suffix in agent_vars_to_summarize:
+        # Validar que las métricas base para esta ganancia existan para evitar KeyErrors
+        # si alguna métrica ET no se logueó consistentemente para todas las ganancias.
+        patience_key = f'patience_M_{gain_suffix}'
+        if patience_key not in episode_data: # Si no hay datos de paciencia para esta ganancia, saltar
+            logger.warning(f"[DataProcessing_summarize_episode] Métrica '{patience_key}' no encontrada en episode_data. Saltando resumen ET para '{gain_suffix}'.")
+            continue
+
+        summary[f'final_patience_M_{gain_suffix}'] = get_last_or_value(episode_data, patience_key, np.nan)
+        summary[f'final_c_hat_{gain_suffix}'] = get_last_or_value(episode_data, f'no_improvement_counter_c_hat_{gain_suffix}', np.nan)
+        summary[f'final_beta_{gain_suffix}'] = get_last_or_value(episode_data, f'penalty_beta_{gain_suffix}', np.nan)
+        
+        improvement_metric_values = episode_data.get(f'improvement_metric_value_{gain_suffix}', [])
+        if isinstance(improvement_metric_values, list) and improvement_metric_values: # Asegurar que sea lista y no vacía
+            summary[f'avg_improvement_metric_value_{gain_suffix}'] = _safe_agg(pd.Series(improvement_metric_values), np.mean)
+        else:
+            summary[f'avg_improvement_metric_value_{gain_suffix}'] = np.nan
+        
+        initial_patience_list = episode_data.get(patience_key, []) # Reusar patience_key
+        if initial_patience_list and pd.notna(initial_patience_list[0]):
+             summary[f'initial_patience_M_{gain_suffix}'] = initial_patience_list[0]
+        else:
+             summary[f'initial_patience_M_{gain_suffix}'] = np.nan
+             
+        requested_et_list = episode_data.get(f'requested_early_termination_{gain_suffix}', [])
+        summary[f'any_requested_et_{gain_suffix}'] = any(val for val in requested_et_list if val is True)
 
     # 2.5: Devolver el diccionario de resumen
     return summary

@@ -4,10 +4,9 @@ import time
 import numpy as np
 import pandas as pd
 import os
-# 1.1: Eliminar import 'copy', ya no se usa aquí
+import gc
 from typing import Dict, Any, List, Tuple, Optional, Union, TYPE_CHECKING
 
-# Interfaces (Type Hinting - Sin cambios)
 from interfaces.environment import Environment
 from interfaces.rl_agent import RLAgent
 from interfaces.controller import Controller
@@ -15,183 +14,127 @@ from interfaces.virtual_simulator import VirtualSimulator
 from interfaces.metrics_collector import MetricsCollector
 from interfaces.reward_strategy import RewardStrategy
 
-# Importar estrategia concreta solo para check de tipo (si es necesario)
-from components.reward_strategies.echo_baseline_reward_strategy import EchoBaselineRewardStrategy # Mantener para check
+# Importar estrategias concretas solo para atributos/type hints si es estrictamente necesario
+# (Idealmente, esto se evitaría si la interfaz RewardStrategy define las propiedades necesarias)
+from components.reward_strategies.echo_baseline_reward_strategy import EchoBaselineRewardStrategy
 
-# Servicios Auxiliares
 from utils.data.result_handler import ResultHandler
 from utils.data.data_processing import summarize_episode
 
-# Romper ciclo de importación para type hints
 if TYPE_CHECKING:
-    from di_container import Container # Importar Container para type hint
-
-# Obtener logger (se inyecta en __init__)
-# logger = logging.getLogger(__name__) # No obtener aquí
+    from di_container import Container
 
 class SimulationManager:
-    """
-    Orquesta la ejecución de la simulación completa, episodio por episodio.
-    Utiliza componentes resueltos vía DI y gestiona el flujo principal.
-    Interactúa con los componentes a través de sus interfaces.
-    """
-
     def __init__(self,
-                 logger: logging.Logger, # 1.2: Inyectar logger
+                 logger: logging.Logger,
                  result_handler: ResultHandler,
-                 container: 'Container' # 1.3: Inyectar el contenedor DI
+                 container: 'Container'
                  ):
-        """ Inicializa el SimulationManager con dependencias clave. """
-        self.logger = logger # Usar logger inyectado
+        self.logger = logger
         self.result_handler = result_handler
-        self.container = container # Guardar referencia al contenedor
-        self.logger.info("SimulationManager instance created.")
-        # 1.4: Validar dependencias esenciales inyectadas
+        self.container = container
+        self.logger.info("[SimMan] SimulationManager instance created.")
         if container is None:
-             msg = "SimulationManager requiere una instancia Container válida."
-             self.logger.critical(msg); raise ValueError(msg) # Fail-Fast
+             msg = "[SimMan] CRITICAL: SimulationManager requires a valid Container instance."
+             self.logger.critical(msg); raise ValueError(msg)
         if logger is None or result_handler is None:
-             msg = "SimulationManager requiere instancias Logger y ResultHandler válidas."
-             self.logger.critical(msg); raise ValueError(msg) # Fail-Fast
-        #self.logger.debug("SimulationManager -> __init__ -> OK") # [DEBUG ADDED]
-
-    # --- Métodos Privados de Orquestación ---
+             msg = "[SimMan] CRITICAL: SimulationManager requires valid Logger and ResultHandler instances."
+             self.logger.critical(msg); raise ValueError(msg)
 
     def _resolve_dependencies(self) -> Tuple[Environment, RLAgent, Controller, MetricsCollector, RewardStrategy, Optional[VirtualSimulator], Dict[str, Any], str]:
-        """ Resuelve las dependencias principales desde el contenedor DI. """
-        #self.logger.debug("Resolviendo dependencias para la simulación...")
+        self.logger.debug("[SimMan:_resolve_dependencies] Resolving dependencies for simulation...")
         try:
-            # 1.5: Resolver componentes usando el contenedor inyectado
             environment = self.container.resolve(Environment)
             agent = self.container.resolve(RLAgent)
             controller = self.container.resolve(Controller)
-            metrics_collector = self.container.resolve(MetricsCollector) # Resuelve como Transient
+            # MetricsCollector es transient, se resolverá por episodio dentro del bucle run()
+            # No obstante, podemos resolver uno aquí para validar que el proveedor existe
+            _ = self.container.resolve(MetricsCollector) # Valida que se puede resolver
             reward_strategy = self.container.resolve(RewardStrategy)
-            # Resolver Optional[VirtualSimulator]
-            virtual_simulator = self.container.resolve(Optional[VirtualSimulator])
-            config = self.container.resolve(dict) # Config general
-            results_folder = self.container.resolve(str) # Carpeta de resultados (registrada en main)
-            #self.logger.debug("Dependencias resueltas.")
+            virtual_simulator = self.container.resolve(Optional[VirtualSimulator]) # Resuelve Optional
+            config = self.container.resolve(dict)
+            results_folder = self.container.resolve(str)
 
-            # [DEBUG ADDED] - Log tipos resueltos
-            #self.logger.debug(f"SimulationManager -> _resolve_dependencies -> Resolved: Env={type(environment).__name__}, Agt={type(agent).__name__}, Ctrl={type(controller).__name__}, RwdStr={type(reward_strategy).__name__}, VirtSim={type(virtual_simulator).__name__ if virtual_simulator else 'None'}")
-
-            # 1.6: Validar dependencias requeridas (Fail-Fast)
             required_components = {
                 "Environment": environment, "RLAgent": agent, "Controller": controller,
-                "MetricsCollector": metrics_collector, "RewardStrategy": reward_strategy,
-                "dict (config)": config, "str (results_folder)": results_folder
-            }
+                "RewardStrategy": reward_strategy, "dict (config)": config,
+                "str (results_folder)": results_folder
+            } # MetricsCollector y VirtualSimulator son opcionales aquí
             missing = [name for name, var in required_components.items() if var is None]
             if missing:
-                raise ValueError(f"Fallo al resolver dependencias DI clave: {missing}")
+                raise ValueError(f"Failed to resolve key DI dependencies: {missing}")
 
-            # Validar tipo de MetricsCollector (debe ser transient)
-            # mc1 = self.container.resolve(MetricsCollector)
-            # mc2 = self.container.resolve(MetricsCollector)
-            # if mc1 is mc2:
-            #     self.logger.warning("MetricsCollector parece estar registrado como Singleton, debería ser Transient.")
-            # del mc1, mc2
+            self.logger.info(f"[SimMan:_resolve_dependencies] Core dependencies resolved. RewardStrategy: {type(reward_strategy).__name__}")
+            # MetricsCollector se resuelve en el bucle de episodios.
+            return environment, agent, controller, None, reward_strategy, virtual_simulator, config, results_folder # type: ignore
 
-            #self.logger.debug("SimulationManager -> _resolve_dependencies -> End OK") # [DEBUG ADDED]
-            return environment, agent, controller, metrics_collector, reward_strategy, virtual_simulator, config, results_folder
-
-        except (ValueError, RecursionError) as e: # Capturar errores de DI
-            self.logger.critical(f"Error fatal resolviendo dependencias DI: {e}", exc_info=True)
-            raise # Relanzar para detener la simulación (Fail-Fast)
+        except (ValueError, RecursionError) as e:
+            self.logger.critical(f"[SimMan:_resolve_dependencies] CRITICAL DI Error: {e}", exc_info=True)
+            raise
         except Exception as e:
-            self.logger.critical(f"Error inesperado resolviendo dependencias DI: {e}", exc_info=True)
-            raise # Relanzar (Fail-Fast)
+            self.logger.critical(f"[SimMan:_resolve_dependencies] UNEXPECTED DI Error: {e}", exc_info=True)
+            raise
 
     def _initialize_episode(self,
                             episode_id: int,
                             environment: Environment,
                             agent: RLAgent,
                             controller: Controller,
-                            metrics_collector: MetricsCollector, # Recibir instancia transient
+                            metrics_collector: MetricsCollector, # Instancia Transient
                             config: Dict
                            ) -> Tuple[np.ndarray, Dict[str, Any]]:
-        """Inicializa el entorno, colector, agente y estado para un nuevo episodio."""
-        self.logger.info(f"--- [ Episodio {episode_id}/{config.get('environment', {}).get('max_episodes', 1)-1} ] ---")
+        max_episodes_cfg = config.get('environment', {}).get('simulation', {}).get('max_episodes', 1)
+        self.logger.info(f"--- [ Episode {episode_id}/{max_episodes_cfg-1} Initializing ] ---")
         try:
-            initial_state_vector_cfg = config.get('initial_conditions', {}).get('x0')
+            # Leer ruta de initial_conditions desde la nueva estructura
+            initial_state_vector_cfg = config.get('environment', {}).get('initial_conditions', {}).get('x0')
             if initial_state_vector_cfg is None:
-                raise KeyError("'initial_conditions: x0' no encontrado en la configuración.")
+                raise KeyError("'environment.initial_conditions.x0' not found in config.")
 
-            # 1.7: Resetear componentes usando interfaces
-            current_state_vector = environment.reset(initial_state_vector_cfg) # Env resetea agente/controller
-            # MetricsCollector se resetea aquí porque es transient por episodio
-            metrics_collector.reset(episode_id=episode_id)
-
-            #self.logger.debug(f"SimulationManager -> _initialize_episode -> State after reset = {np.round(current_state_vector, 4)}") # [DEBUG ADDED]
-
-            # Log estado inicial (t=0)
+            current_state_vector = environment.reset(initial_state_vector_cfg)
+            metrics_collector.reset(episode_id=episode_id) # Resetear collector transient
             self._log_initial_metrics(metrics_collector, current_state_vector, controller, agent, config)
 
-            # Preparar estado inicial para el agente
+            # Leer state_config para el agente desde la nueva estructura
             state_config_for_agent = config.get('environment', {}).get('agent', {}).get('params', {}).get('state_config', {})
             agent_state_dict = agent.build_agent_state(current_state_vector, controller, state_config_for_agent)
-
-            # Seleccionar acción inicial A'
             initial_actions_prime = agent.select_action(agent_state_dict)
-            
-            #self.logger.debug(f"SimulationManager -> _initialize_episode -> Initial Action A' = {initial_actions_prime}") # [DEBUG ADDED]
-
-            # Aplicar acción A' inicial al controlador
             self._apply_actions_to_controller(controller, initial_actions_prime, config)
 
-            # Preparar datos para el primer intervalo de decisión
             initial_interval_data = {
-                'start_state_dict': agent_state_dict, # S
-                'start_raw_state_vector': np.copy(current_state_vector), # Vector crudo de S
-                'actions_dict': initial_actions_prime.copy(), # A' (a aplicar durante el intervalo)
-                'reward_sum': 0.0, # Acumulador R_real (para log/debug, no para R_learn)
-                'w_stab_sum': 0.0, # Acumulador w_stab (para log/debug y Shadow Baseline)
-                'steps_in_interval': 0, # Contador pasos dt
-                'end_state_dict': None, # S' (se llena al final)
-                'done': False, # Flag de terminación
-                'reward_dict_echo': None, # R_diff (se llena si es Echo)
-                'decision_count': 0 # Contador de decisiones en el episodio
+                'start_state_dict': agent_state_dict,
+                'start_raw_state_vector': np.copy(current_state_vector),
+                'actions_dict': initial_actions_prime.copy(),
+                'reward_sum': 0.0, 'w_stab_sum': 0.0, 'steps_in_interval': 0,
+                'end_state_dict': None, 'done': False, 'reward_dict_echo': None,
+                'decision_count': 0
             }
-            #self.logger.debug(f"SimulationManager -> _initialize_episode -> End OK") # [DEBUG ADDED]
+            self.logger.debug(f"[SimMan:_initialize_episode] Ep {episode_id} initialized. Initial state: {np.round(current_state_vector[:4],3)}, Action A': {initial_actions_prime}")
             return current_state_vector, initial_interval_data
-
         except (KeyError, ValueError, AttributeError, TypeError, RuntimeError) as e:
-            self.logger.error(f"Error inicializando episodio {episode_id}: {e}", exc_info=True)
-            raise # Relanzar para indicar fallo en inicialización (Fail-Fast)
+            self.logger.error(f"[SimMan:_initialize_episode] Error initializing episode {episode_id}: {e}", exc_info=True)
+            raise
 
     def _log_initial_metrics(self, metrics_collector: MetricsCollector, state: np.ndarray, controller: Controller, agent: RLAgent, config: Dict):
-        """Registra las métricas iniciales (t=0) del episodio."""
-        # 1.8: Simplificar logging, asumir que las interfaces proveen la info necesaria
-        #      Los getters específicos (`epsilon`, `learning_rate`, `get_params`) vienen de las interfaces.
-        #      Usar getattr para atributos opcionales/específicos de implementación.
-        
-        # (Loggeo inicial menos crítico para DEBUG selectivo, mantenerlo opcional)
-        #self.logger.debug("SimulationManager -> _log_initial_metrics -> Start")
-        
+        self.logger.debug(f"[SimMan:_log_initial_metrics] Logging initial metrics for state: {np.round(state[:4],3)}")
         metrics_collector.log('time', 0.0)
         try:
             metrics_collector.log('cart_position', state[0]); metrics_collector.log('cart_velocity', state[1])
             metrics_collector.log('pendulum_angle', state[2]); metrics_collector.log('pendulum_velocity', state[3])
 
-            # Métricas del controlador
             ctrl_params = controller.get_params()
-            metrics_collector.log('kp', ctrl_params.get('kp', np.nan))
-            metrics_collector.log('ki', ctrl_params.get('ki', np.nan))
-            metrics_collector.log('kd', ctrl_params.get('kd', np.nan))
-            setpoint = getattr(controller, 'setpoint', 0.0) # Atributo específico PID
+            metrics_collector.log('kp', ctrl_params.get('kp', np.nan)); metrics_collector.log('ki', ctrl_params.get('ki', np.nan)); metrics_collector.log('kd', ctrl_params.get('kd', np.nan))
+            # Setpoint ahora está en environment.controller.params.setpoint
+            setpoint = config.get('environment',{}).get('controller',{}).get('params',{}).get('setpoint', 0.0)
             metrics_collector.log('error', state[2] - setpoint)
-            # Intentar loguear estado interno PID (opcional)
             metrics_collector.log('integral_error', getattr(controller, 'integral_error', np.nan))
             metrics_collector.log('derivative_error', getattr(controller, 'derivative_error', np.nan))
 
-            # Métricas del agente
-            metrics_collector.log('epsilon', agent.epsilon)
-            metrics_collector.log('learning_rate', agent.learning_rate)
+            metrics_collector.log('epsilon', agent.epsilon); metrics_collector.log('learning_rate', agent.learning_rate)
 
-            # Configuración de pasos de ganancia
-            pid_adapt_cfg = config.get('pid_adaptation', {})
-            gain_step_config = pid_adapt_cfg.get('gain_step', 5.0)
+            # Leer pid_adaptation desde la nueva estructura environment.controller.pid_adaptation
+            pid_adapt_cfg = config.get('environment', {}).get('controller', {}).get('pid_adaptation', {})
+            gain_step_config = pid_adapt_cfg.get('gain_step', 5.0) # Default si falta
             variable_step = pid_adapt_cfg.get('variable_step', False)
             if variable_step and isinstance(gain_step_config, dict):
                  metrics_collector.log('gain_step_kp', float(gain_step_config.get('kp', np.nan)))
@@ -199,73 +142,61 @@ class SimulationManager:
                  metrics_collector.log('gain_step_kd', float(gain_step_config.get('kd', np.nan)))
             elif isinstance(gain_step_config, (int,float)):
                  metrics_collector.log('gain_step', float(gain_step_config))
-            else: metrics_collector.log('gain_step', np.nan) # Log NaN si no es numérico
+            else: metrics_collector.log('gain_step', np.nan)
 
-            # Métricas que no existen al inicio
             metrics_collector.log('reward', 0.0); metrics_collector.log('cumulative_reward', 0.0)
-            metrics_collector.log('force', 0.0); metrics_collector.log('stability_score', 1.0) # Asumir estable al inicio
+            metrics_collector.log('force', 0.0); metrics_collector.log('stability_score', 1.0)
             nan_metrics = ['action_kp', 'action_ki', 'action_kd', 'learn_select_duration_ms',
                            'td_error_kp', 'td_error_ki', 'td_error_kd',
                            'virtual_reward_kp', 'virtual_reward_ki', 'virtual_reward_kd',
                            'id_agent_decision', 'q_value_max_kp', 'q_value_max_ki', 'q_value_max_kd',
                            'q_visit_count_state_kp', 'q_visit_count_state_ki', 'q_visit_count_state_kd',
                            'baseline_value_kp', 'baseline_value_ki', 'baseline_value_kd',
-                           'adaptive_mu_angle', 'adaptive_sigma_angle', # etc. stats adaptativas
-                           ]
+                           'virtual_w_stab_kp_cf', 'virtual_w_stab_ki_cf', 'virtual_w_stab_kd_cf']
             adaptive_vars = ['angle', 'angular_velocity', 'cart_position', 'cart_velocity']
             for var in adaptive_vars: nan_metrics.extend([f'adaptive_mu_{var}', f'adaptive_sigma_{var}'])
-
             for m in nan_metrics: metrics_collector.log(m, np.nan)
 
-            # Loguear Q/Visits/Baseline/Adaptive iniciales (como NaNs o defaults)
-            # La implementación de MetricsCollector se encarga de llamar a los métodos del agente
-            if hasattr(metrics_collector, 'log_q_values'): metrics_collector.log_q_values(agent, {}) # type: ignore[operator]
-            if hasattr(metrics_collector, 'log_q_visit_counts'): metrics_collector.log_q_visit_counts(agent, {}) # type: ignore[operator]
-            if hasattr(metrics_collector, 'log_baselines'): metrics_collector.log_baselines(agent, {}) # type: ignore[operator]
-            if hasattr(metrics_collector, 'log_adaptive_stats'): metrics_collector.log_adaptive_stats({}) # type: ignore[operator]
+            # Construir el estado discreto del agente para inicialización
+            state_config_for_agent = config.get('environment', {}) .get('agent', {}).get('params', {}).get('state_config', {})
+            agent_state_dict = agent.build_agent_state(state, controller, state_config_for_agent)
 
-        except IndexError: self.logger.warning("Estado inicial con longitud inesperada al loguear métricas.")
-        except Exception as e: self.logger.error(f"Error logueando métricas iniciales: {e}", exc_info=True)
-        #self.logger.debug("SimulationManager -> _log_initial_metrics -> End")
+            if hasattr(metrics_collector, 'log_early_termination_metrics'): metrics_collector.log_early_termination_metrics(agent) # type: ignore
+            if hasattr(metrics_collector, 'log_q_values'): metrics_collector.log_q_values(agent, agent_state_dict) # type: ignore[operator]
+            if hasattr(metrics_collector, 'log_q_visit_counts'): metrics_collector.log_q_visit_counts(agent, agent_state_dict) # type: ignore[operator]
+            if hasattr(metrics_collector, 'log_baselines'): metrics_collector.log_baselines(agent, agent_state_dict) # type: ignore[operator]
+            if hasattr(metrics_collector, 'log_adaptive_stats'): metrics_collector.log_adaptive_stats({}) # type: ignore[operator]
+        except IndexError: self.logger.warning("[SimMan:_log_initial_metrics] State vector unexpected length.")
+        except Exception as e: self.logger.error(f"[SimMan:_log_initial_metrics] Error logging: {e}", exc_info=True)
+
 
     def _apply_actions_to_controller(self, controller: Controller, actions_dict: Dict[str, int], config: Dict):
-        """Aplica las acciones seleccionadas para actualizar las ganancias del controlador."""
-        
-        #self.logger.debug(f"SimulationManager -> _apply_actions_to_controller -> Start: Actions={actions_dict}") # [DEBUG ADDED]
-        
-        # 1.9: Usar interfaces del controlador y extraer config de forma segura
         try:
             current_gains = controller.get_params()
             kp, ki, kd = current_gains.get('kp', 0.0), current_gains.get('ki', 0.0), current_gains.get('kd', 0.0)
 
-            #self.logger.debug(f"SimulationManager -> _apply_actions_to_controller -> Current Gains = {current_gains}") # [DEBUG ADDED]
-
-            # Obtener pasos de ganancia
-            pid_adapt_cfg = config.get('pid_adaptation', {})
-            gain_step_config = pid_adapt_cfg.get('gain_step', 1.0) # Default a 1.0 si no existe
+            # Leer pid_adaptation desde environment.controller.pid_adaptation
+            pid_adapt_cfg = config.get('environment', {}).get('controller', {}).get('pid_adaptation', {})
+            gain_step_config = pid_adapt_cfg.get('gain_step', 1.0)
             variable_step = pid_adapt_cfg.get('variable_step', False)
             step_kp, step_ki, step_kd = 0.0, 0.0, 0.0
 
             if variable_step and isinstance(gain_step_config, dict):
-                step_kp = float(gain_step_config.get('kp', 0.0)) # Default a 0 si falta
+                step_kp = float(gain_step_config.get('kp', 0.0))
                 step_ki = float(gain_step_config.get('ki', 0.0))
                 step_kd = float(gain_step_config.get('kd', 0.0))
             elif isinstance(gain_step_config, (int, float)):
                 step_kp = step_ki = step_kd = float(gain_step_config)
             else:
-                 self.logger.warning(f"Config 'gain_step' inválida ({gain_step_config}). Usando pasos 0.0.")
-            
-            #self.logger.debug(f"SimulationManager -> _apply_actions_to_controller -> Steps = (Kp:{step_kp:.3f}, Ki:{step_ki:.3f}, Kd:{step_kd:.3f})") # [DEBUG ADDED]
+                 self.logger.warning(f"[SimMan:_apply_actions] Invalid 'gain_step' config ({gain_step_config}). Using steps 0.0.")
 
-            # Calcular nuevas ganancias basadas en acción (0: Dec, 1: Keep, 2: Inc)
             new_kp = kp + (actions_dict.get('kp', 1) - 1) * step_kp
             new_ki = ki + (actions_dict.get('ki', 1) - 1) * step_ki
             new_kd = kd + (actions_dict.get('kd', 1) - 1) * step_kd
 
-            # Aplicar clipping si está configurado
+            # Leer límites de ganancia desde environment.agent.params.state_config
             gain_limits_cfg = config.get('environment', {}).get('agent', {}).get('params', {}).get('state_config', {})
             kp_cfg = gain_limits_cfg.get('kp', {}); ki_cfg = gain_limits_cfg.get('ki', {}); kd_cfg = gain_limits_cfg.get('kd', {})
-            # Usar np.inf como default si min/max no están definidos
             kp_min, kp_max = kp_cfg.get('min', -np.inf), kp_cfg.get('max', np.inf)
             ki_min, ki_max = ki_cfg.get('min', -np.inf), ki_cfg.get('max', np.inf)
             kd_min, kd_max = kd_cfg.get('min', -np.inf), kd_cfg.get('max', np.inf)
@@ -273,169 +204,111 @@ class SimulationManager:
             new_kp = np.clip(new_kp, kp_min, kp_max)
             new_ki = np.clip(new_ki, ki_min, ki_max)
             new_kd = np.clip(new_kd, kd_min, kd_max)
-
-            #self.logger.debug(f"SimulationManager -> _apply_actions_to_controller -> Clipped Gains = (Kp:{new_kp:.3f}, Ki:{new_ki:.3f}, Kd:{new_kd:.3f})") # [DEBUG ADDED]
-            
-            # Actualizar controlador usando la interfaz
             controller.update_params(new_kp, new_ki, new_kd)
-
-            #self.logger.debug(f"SimulationManager -> _apply_actions_to_controller -> Controller updated OK") # [DEBUG ADDED]
-
+            
+            self.logger.debug(f"[SimMan:_apply_actions] Controller gains updated to: Kp={new_kp:.2f}, Ki={new_ki:.2f}, Kd={new_kd:.2f}")
         except KeyError as e:
-            self.logger.error(f"Error aplicando acciones al controlador: Clave faltante {e} en config o actions_dict {actions_dict}")
-            # No relanzar, puede continuar con las ganancias anteriores.
+            self.logger.error(f"[SimMan:_apply_actions] Error: Missing key {e} in config or actions_dict {actions_dict}")
         except Exception as e:
-            self.logger.error(f"Error inesperado aplicando acciones al controlador: {e}", exc_info=True)
-            # No relanzar.
-        #self.logger.debug(f"SimulationManager -> _apply_actions_to_controller -> End") # [DEBUG ADDED]
+            self.logger.error(f"[SimMan:_apply_actions] Unexpected error: {e}", exc_info=True)
+
 
     def _run_standard_interval_steps(self, start_time: float, duration: float, current_state: np.ndarray,
                                       environment: Environment, controller: Controller, agent: RLAgent,
                                       metrics_collector: MetricsCollector, config: Dict,
-                                      actions_applied_in_interval: Dict # A' que se aplicó
+                                      actions_applied_in_interval: Dict
                                      ) -> Tuple[float, float, np.ndarray, bool, str]:
-        
-        self.logger.debug(f"SimulationManager -> _run_standard_interval_steps -> Start: t={start_time:.4f}, dur={duration:.4f}, state={np.round(current_state[:4], 4)}..., actions={actions_applied_in_interval}") # [DEBUG ADDED]
-
-        """ Ejecuta los pasos dt para un intervalo estándar. """
         interval_reward_sum = 0.0
         interval_stability_scores: List[float] = []
         done = False
         termination_reason = "unknown"
-        final_state_in_interval = current_state # Estado al final del intervalo
-
-        # 1.10: Obtener dt de la instancia de environment (inyectada)
+        final_state_in_interval = current_state
         try:
-            dt = environment.dt # type: ignore[attr-defined] # Asumir que Environment tiene dt
-            if not isinstance(dt, (float, int)) or dt <= 0: raise ValueError("dt inválido desde environment")
+            dt = environment.dt # type: ignore[attr-defined]
+            if not isinstance(dt, (float, int)) or dt <= 0: raise ValueError("Invalid dt from environment")
         except (AttributeError, ValueError) as e:
-             self.logger.error(f"No se pudo obtener dt válido del environment: {e}. Usando 0.001 (riesgoso).")
-             dt = 0.001 # Fallback peligroso
-
+             self.logger.error(f"[SimMan:_run_std_interval] Invalid dt from env: {e}. Using 0.001 (fallback).")
+             dt = 0.001
         num_steps = max(1, int(round(duration / dt)))
 
         for step in range(num_steps):
-            current_step_time = round(start_time + (step + 1) * dt, 6) # Redondear para evitar flotantes
-
-            # [DEBUG ADDED] - Log llamada y resultado de env.step
-            #self.logger.debug(f"SimMan -> _run_standard_interval -> [Step {step+1}] Calling env.step()")
-
-            # A. Ejecutar paso del entorno (usando interfaz)
+            current_step_time = round(start_time + (step + 1) * dt, 6)
             try:
-                # environment.step() devuelve (next_state, (reward, w_stab), force)
                 next_state_vector, (reward_step, stability_score_step), force = environment.step()
-                final_state_in_interval = next_state_vector # Actualizar estado final
-            
-                #self.logger.debug(f"SimMan -> _run_standard_interval -> [Step {step+1}] Result: next_st={np.round(next_state_vector[:4], 8)}, R={reward_step:.8f}, Ws={stability_score_step:.8f}, F={force:.8f}") # [DEBUG ADDED]
-
-            except RuntimeError as e: # Capturar RuntimeError de environment.step
-                self.logger.error(f"Error CRÍTICO en environment.step a t={current_step_time:.4f}: {e}. Terminando episodio.", exc_info=True)
+                final_state_in_interval = next_state_vector
+            except RuntimeError as e:
+                self.logger.error(f"[SimMan:_run_std_interval] CRITICAL env.step() error at t={current_step_time:.4f}: {e}. Terminating episode.", exc_info=True)
                 done = True; termination_reason = "env_step_error"
-                metrics_collector.log('time', current_step_time) # Loguear tiempo del error
-                # Loguear NaNs para el resto de métricas del paso fallido
+                metrics_collector.log('time', current_step_time)
                 nan_metrics = ['reward', 'stability_score', 'force', 'cart_position', 'cart_velocity', 'pendulum_angle', 'pendulum_velocity', 'error', 'kp', 'ki', 'kd', 'integral_error', 'derivative_error', 'action_kp', 'action_ki', 'action_kd', 'epsilon', 'learning_rate', 'gain_step', 'gain_step_kp', 'gain_step_ki', 'gain_step_kd', 'cumulative_reward']
                 for m in nan_metrics: metrics_collector.log(m, np.nan)
-                # Nota: cumulative_reward también será NaN si reward lo es.
-                break # Salir del bucle de pasos del intervalo
+                break
 
-            # B. Acumular métricas del intervalo (asegurando tipos finitos)
             reward_f = float(reward_step) if np.isfinite(reward_step) else 0.0
-            stability_score_f = float(stability_score_step) if np.isfinite(stability_score_step) else 0.0 # Usar 0 si w_stab es NaN/inf
+            stability_score_f = float(stability_score_step) if np.isfinite(stability_score_step) else 0.0
             force_f = float(force) if np.isfinite(force) else np.nan
-
             interval_reward_sum += reward_f
             interval_stability_scores.append(stability_score_f)
 
-            # C. Loguear métricas del paso dt usando MetricsCollector
             metrics_collector.log('time', current_step_time)
-            # Estado
             metrics_collector.log('cart_position', next_state_vector[0]); metrics_collector.log('cart_velocity', next_state_vector[1])
             metrics_collector.log('pendulum_angle', next_state_vector[2]); metrics_collector.log('pendulum_velocity', next_state_vector[3])
-            # Controlador y Agente
             try:
-                ctrl_setpoint = getattr(controller, 'setpoint', 0.0); metrics_collector.log('error', next_state_vector[2] - ctrl_setpoint)
+                # Setpoint desde config
+                ctrl_setpoint = config.get('environment',{}).get('controller',{}).get('params',{}).get('setpoint', 0.0)
+                metrics_collector.log('error', next_state_vector[2] - ctrl_setpoint)
                 gains = controller.get_params(); metrics_collector.log('kp', gains.get('kp', np.nan)); metrics_collector.log('ki', gains.get('ki', np.nan)); metrics_collector.log('kd', gains.get('kd', np.nan))
                 metrics_collector.log('integral_error', getattr(controller, 'integral_error', np.nan)); metrics_collector.log('derivative_error', getattr(controller, 'derivative_error', np.nan))
-                # Log actions_applied_in_interval (A' que se aplicó durante este intervalo)
-                metrics_collector.log('action_kp', actions_applied_in_interval.get('kp', np.nan))
-                metrics_collector.log('action_ki', actions_applied_in_interval.get('ki', np.nan))
-                metrics_collector.log('action_kd', actions_applied_in_interval.get('kd', np.nan))
+                metrics_collector.log('action_kp', actions_applied_in_interval.get('kp', np.nan)); metrics_collector.log('action_ki', actions_applied_in_interval.get('ki', np.nan)); metrics_collector.log('action_kd', actions_applied_in_interval.get('kd', np.nan))
                 metrics_collector.log('epsilon', agent.epsilon); metrics_collector.log('learning_rate', agent.learning_rate)
-                # Log gain step
-                pid_adapt_cfg = config.get('pid_adaptation', {}); gain_step_config = pid_adapt_cfg.get('gain_step', 5.0); variable_step = pid_adapt_cfg.get('variable_step', False)
+                # Gain step desde config environment.controller.pid_adaptation
+                pid_adapt_cfg = config.get('environment', {}).get('controller', {}).get('pid_adaptation', {})
+                gain_step_config = pid_adapt_cfg.get('gain_step', 5.0); variable_step = pid_adapt_cfg.get('variable_step', False)
                 if variable_step and isinstance(gain_step_config, dict):
                      metrics_collector.log('gain_step_kp', float(gain_step_config.get('kp', np.nan)))
                      metrics_collector.log('gain_step_ki', float(gain_step_config.get('ki', np.nan)))
                      metrics_collector.log('gain_step_kd', float(gain_step_config.get('kd', np.nan)))
                 elif isinstance(gain_step_config, (int,float)): metrics_collector.log('gain_step', float(gain_step_config))
                 else: metrics_collector.log('gain_step', np.nan)
-            except AttributeError as ae: self.logger.warning(f"No se pudo loguear atributo en step: {ae}")
-            except IndexError: self.logger.warning("Estado con longitud inesperada en step log.")
-            # Recompensa, Fuerza, Estabilidad
+            except AttributeError as ae: self.logger.warning(f"[SimMan:_run_std_interval] Attr error logging step metrics: {ae}")
+            except IndexError: self.logger.warning("[SimMan:_run_std_interval] State vector unexpected length in step log.")
             metrics_collector.log('reward', reward_f)
-            # Calcular cumulativo on-the-fly (más robusto)
-            # 1.11: Usar np.nansum para calcular cumulativo
             cumulative_rewards_list = metrics_collector.get_metrics().get('reward', [])
             metrics_collector.log('cumulative_reward', np.nansum(np.array(cumulative_rewards_list, dtype=float)))
             metrics_collector.log('force', force_f); metrics_collector.log('stability_score', stability_score_f)
-            # Log NaNs para métricas que solo ocurren en boundary
-            nan_boundary_metrics = ['learn_select_duration_ms', 'id_agent_decision',
-                                    'td_error_kp', 'td_error_ki', 'td_error_kd',
-                                    'virtual_reward_kp', 'virtual_reward_ki', 'virtual_reward_kd',
-                                    'q_value_max_kp', 'q_value_max_ki', 'q_value_max_kd',
-                                    'q_visit_count_state_kp', 'q_visit_count_state_ki', 'q_visit_count_state_kd',
-                                    'baseline_value_kp', 'baseline_value_ki', 'baseline_value_kd', 
-                                    # Añadir log de NaNs para w_stab virtuales en modo no-Echo
-                                    'virtual_w_stab_kp_cf', 'virtual_w_stab_ki_cf', 'virtual_w_stab_kd_cf']
+            nan_boundary_metrics = ['learn_select_duration_ms', 'id_agent_decision', 'td_error_kp', 'td_error_ki', 'td_error_kd', 'virtual_reward_kp', 'virtual_reward_ki', 'virtual_reward_kd', 'q_value_max_kp', 'q_value_max_ki', 'q_value_max_kd', 'q_visit_count_state_kp', 'q_visit_count_state_ki', 'q_visit_count_state_kd', 'baseline_value_kp', 'baseline_value_ki', 'baseline_value_kd', 'virtual_w_stab_kp_cf', 'virtual_w_stab_ki_cf', 'virtual_w_stab_kd_cf']
             for m in nan_boundary_metrics: metrics_collector.log(m, np.nan)
-            # Log stats adaptativas (si existen)
             if hasattr(metrics_collector, 'log_adaptive_stats'):
-                # Intentar obtener stats del stability calculator a través de reward_function
                 adaptive_stats = {}
                 try:
-                    # Asumir que reward_function tiene stability_calculator y este tiene get_current...
                     calculator = getattr(environment.reward_function, 'stability_calculator', None) # type: ignore[attr-defined]
                     if calculator and hasattr(calculator, 'get_current_adaptive_stats'):
                          adaptive_stats = calculator.get_current_adaptive_stats()
-                except Exception as e_stats: self.logger.debug(f"No se pudieron obtener stats adaptativas: {e_stats}")
+                except Exception as e_stats: self.logger.debug(f"[SimMan:_run_std_interval] Could not get adaptive stats: {e_stats}")
                 metrics_collector.log_adaptive_stats(adaptive_stats) # type: ignore[operator]
 
-
-            # D. Verificar Terminación (usando interfaz)
-            if not done: # Solo chequear si no ha terminado ya por error
+            if not done:
                 try:
-                    # Usar config local (pasada como argumento)
-                    angle_exc, cart_exc, stab_term = environment.check_termination(config)
-                    total_sim_time_per_episode = config.get('environment', {}).get('total_time', 5.0)
-                    # 1.12: Usar dt/2 para comparar tiempos flotantes
+                    # Pasar config completa a check_termination
+                    limit_exceeded, goal_reached, _ = environment.check_termination(config)
+                    # total_time desde environment.simulation.total_time
+                    total_sim_time_per_episode = config.get('environment', {}).get('simulation', {}).get('total_time', 5.0)
                     time_limit_reached = (current_step_time >= total_sim_time_per_episode - (dt / 2.0))
 
-                    if angle_exc or cart_exc or stab_term or time_limit_reached:
+                    if limit_exceeded or goal_reached or time_limit_reached:
                         done = True
-                        # Asignar razón solo la primera vez que 'done' se vuelve True
-                        if termination_reason == "unknown":
-                            if angle_exc: termination_reason = "angle_limit"
-                            elif cart_exc: termination_reason = "cart_limit"
-                            elif stab_term: termination_reason = "stabilized"
+                        if termination_reason == "unknown": # Asignar solo la primera vez
+                            if limit_exceeded: termination_reason = "limit_exceeded" # Simplificar
+                            elif goal_reached: termination_reason = "goal_reached"
                             elif time_limit_reached: termination_reason = "time_limit"
-                            else: termination_reason = "unknown_done" # Caso raro
-                        self.logger.info(f"Episodio terminando: {termination_reason} at t={current_step_time:.3f}")
-                        # No romper aquí, terminar el bucle normalmente
+                            else: termination_reason = "unknown_termination"
+                        self.logger.info(f"[SimMan:_run_std_interval] Episode ending: {termination_reason} at t={current_step_time:.3f}s")
                 except Exception as e:
-                    self.logger.error(f"Error en environment.check_termination t={current_step_time:.3f}: {e}", exc_info=True)
+                    self.logger.error(f"[SimMan:_run_std_interval] Error in env.check_termination at t={current_step_time:.3f}s: {e}", exc_info=True)
                     done = True; termination_reason = "termination_check_error"
-
-            # Salir del bucle de pasos si termina el episodio
-            if done:
-                break
-
-        # Calcular media de estabilidad (asegurando que sea finito)
+            if done: break
         avg_interval_stability = np.nanmean(interval_stability_scores) if interval_stability_scores else 1.0
-        if not np.isfinite(avg_interval_stability): avg_interval_stability = 1.0 # Default a 1.0 si es NaN/inf
-
-        # [DEBUG ADDED]
-        #self.logger.debug(f"SimulationManager -> _run_standard_interval_steps -> End: Rsum={interval_reward_sum:.8f}, AvgWs={avg_interval_stability:.8f}, FinalSt={np.round(final_state_in_interval[:4],8)}, Done={done}, Reason='{termination_reason}'")
-
+        if not np.isfinite(avg_interval_stability): avg_interval_stability = 1.0
         return interval_reward_sum, avg_interval_stability, final_state_in_interval, done, termination_reason
 
     def _run_echo_baseline_interval_steps(self, start_time: float, duration: float, current_state: np.ndarray,
@@ -443,231 +316,125 @@ class SimulationManager:
                                            metrics_collector: MetricsCollector, virtual_simulator: VirtualSimulator,
                                            config: Dict, actions_applied_in_interval: Dict
                                           ) -> Tuple[float, float, np.ndarray, bool, str, Dict[str, float]]:
-        
-        #self.logger.debug(f"SimulationManager -> _run_echo_baseline_interval_steps -> Start: t={start_time:.4f}, dur={duration:.4f}") # [DEBUG ADDED]
-
-        """ Ejecuta intervalo real y simulaciones virtuales para Echo Baseline. """
-
-        # 1. Ejecutar intervalo real (igual que _run_standard_interval_steps)
         interval_reward_real, avg_w_stab_real, final_state_real, done_real, termination_reason_real = \
             self._run_standard_interval_steps(
                 start_time, duration, current_state, environment, controller, agent,
                 metrics_collector, config, actions_applied_in_interval
             )
-        
-        # [DEBUG ADDED]
-        #self.logger.debug(f"SimulationManager -> _run_echo_baseline -> Real Interval Result: R={interval_reward_real:.8f}, Ws={avg_w_stab_real:.8f}, Done={done_real}, Reason='{termination_reason_real}'")
-
-        # Si falló el entorno real críticamente, no simular
         if done_real and termination_reason_real == "env_step_error":
-             self.logger.error("EchoBaseline: Fallo crítico en intervalo real, saltando simulaciones virtuales.")
+             self.logger.error("[SimMan:_run_echo_interval] Critical failure in real interval, skipping virtual simulations.")
              return interval_reward_real, avg_w_stab_real, final_state_real, done_real, termination_reason_real, {}
 
-        # 2. Preparar para simulaciones virtuales
         reward_dict_echo: Dict[str, float] = {}
-        interval_start_state = current_state # Estado al INICIO del intervalo real
-        # 1.13: Obtener ganancias previas del controlador de forma segura
+        interval_start_state = current_state
         gains_applied = controller.get_params()
         prev_kp = getattr(controller, 'prev_kp', gains_applied.get('kp', np.nan))
         prev_ki = getattr(controller, 'prev_ki', gains_applied.get('ki', np.nan))
         prev_kd = getattr(controller, 'prev_kd', gains_applied.get('kd', np.nan))
-
-        # [DEBUG ADDED]
-        #self.logger.debug(f"SimulationManager -> _run_echo_baseline -> Virtual Sim Prep: StartSt={np.round(interval_start_state[:4],4)}, PrevGains=(Kp:{prev_kp:.3f}, Ki:{prev_ki:.3f}, Kd:{prev_kd:.3f})")
-
-        # Validar que las ganancias previas sean numéricas
         if any(pd.isna(k) or not np.isfinite(k) for k in [prev_kp, prev_ki, prev_kd]):
-             self.logger.warning(f"EchoBaseline: Ganancias previas inválidas (Kp:{prev_kp}, Ki:{prev_ki}, Kd:{prev_kd}). No se pueden ejecutar simulaciones contrafactuales.")
+             self.logger.warning(f"[SimMan:_run_echo_interval] Invalid previous gains (Kp:{prev_kp}, Ki:{prev_ki}, Kd:{prev_kd}). Skipping counterfactuals.")
              return interval_reward_real, avg_w_stab_real, final_state_real, done_real, termination_reason_real, {}
 
-
-        # 3. Ejecutar simulaciones virtuales (solo si el intervalo real no falló)
-        virtual_sim_start_time = time.time()
         try:
-            # Simulación contrafactual para Kp (manteniendo Kp anterior)
             gains_p_cf = {'kp': prev_kp, 'ki': gains_applied['ki'], 'kd': gains_applied['kd']}
-            #self.logger.debug(f"SimMan -> _run_echo_baseline -> Running Virtual Sim (Kp CF) with gains: {gains_p_cf}") # [DEBUG ADDED]
             R_p_cf, Ws_p_cf = virtual_simulator.run_interval_simulation(interval_start_state, start_time, duration, gains_p_cf)
-
-            # Simulación contrafactual para Ki
             gains_i_cf = {'kp': gains_applied['kp'], 'ki': prev_ki, 'kd': gains_applied['kd']}
-            #self.logger.debug(f"SimMan -> _run_echo_baseline -> Running Virtual Sim (Ki CF) with gains: {gains_i_cf}") # [DEBUG ADDED]
             R_i_cf, Ws_i_cf = virtual_simulator.run_interval_simulation(interval_start_state, start_time, duration, gains_i_cf)
-
-            # Simulación contrafactual para Kd
             gains_d_cf = {'kp': gains_applied['kp'], 'ki': gains_applied['ki'], 'kd': prev_kd}
-            #self.logger.debug(f"SimMan -> _run_echo_baseline -> Running Virtual Sim (Kd CF) with gains: {gains_d_cf}") # [DEBUG ADDED]
             R_d_cf, Ws_d_cf = virtual_simulator.run_interval_simulation(interval_start_state, start_time, duration, gains_d_cf)
-
-            # Calcular recompensas diferenciales (R_diff = R_real - R_cf)
             reward_dict_echo = {
-                'kp': interval_reward_real - R_p_cf,
-                'ki': interval_reward_real - R_i_cf,
-                'kd': interval_reward_real - R_d_cf
+                'kp': interval_reward_real - R_p_cf, 'ki': interval_reward_real - R_i_cf, 'kd': interval_reward_real - R_d_cf
             }
-
-            virtual_sim_duration = (time.time() - virtual_sim_start_time) * 1000
-            #self.logger.debug(f"EchoBaseline: Simulaciones virtuales completadas ({virtual_sim_duration:.3f} ms)")
-            # [DEBUG ADDED]
-            #self.logger.debug(f"SimulationManager -> _run_echo_baseline -> Virtual Sims OK: R_cf=(Kp:{R_p_cf:.8f}, Ki:{R_i_cf:.8f}, Kd:{R_d_cf:.8f}), R_diff={reward_dict_echo}")
-
-            # Log R_diffs virtuales usando MetricsCollector
-            # 1.14: Usar método específico del collector si existe
-            if hasattr(metrics_collector, 'log_virtual_rewards'):
-                metrics_collector.log_virtual_rewards(reward_dict_echo) # type: ignore[operator]
-            else: # Log manual si no existe el método específico
-                metrics_collector.log('virtual_reward_kp', reward_dict_echo.get('kp', np.nan))
-                metrics_collector.log('virtual_reward_ki', reward_dict_echo.get('ki', np.nan))
-                metrics_collector.log('virtual_reward_kd', reward_dict_echo.get('kd', np.nan))
-            # Loguear Ws virtuales
+            if hasattr(metrics_collector, 'log_virtual_rewards'): metrics_collector.log_virtual_rewards(reward_dict_echo) # type: ignore[operator]
+            else: metrics_collector.log('virtual_reward_kp', reward_dict_echo.get('kp', np.nan)); metrics_collector.log('virtual_reward_ki', reward_dict_echo.get('ki', np.nan)); metrics_collector.log('virtual_reward_kd', reward_dict_echo.get('kd', np.nan))
             metrics_collector.log('virtual_w_stab_kp_cf', Ws_p_cf if np.isfinite(Ws_p_cf) else np.nan)
             metrics_collector.log('virtual_w_stab_ki_cf', Ws_i_cf if np.isfinite(Ws_i_cf) else np.nan)
             metrics_collector.log('virtual_w_stab_kd_cf', Ws_d_cf if np.isfinite(Ws_d_cf) else np.nan)
-
         except Exception as e:
-            self.logger.error(f"EchoBaseline: Error durante simulaciones virtuales: {e}", exc_info=True)
-            # Devolver dict vacío si fallan las simulaciones
+            self.logger.error(f"[SimMan:_run_echo_interval] Error during virtual simulations: {e}", exc_info=True)
             reward_dict_echo = {}
-            # Loguear NaNs
-            if hasattr(metrics_collector, 'log_virtual_rewards'):
-                metrics_collector.log_virtual_rewards({}) # type: ignore[operator]
-            else:
-                metrics_collector.log('virtual_reward_kp', np.nan)
-                metrics_collector.log('virtual_reward_ki', np.nan)
-                metrics_collector.log('virtual_reward_kd', np.nan)
-            # Loguear NaNs para Ws virtuales también en caso de error
-            metrics_collector.log('virtual_w_stab_kp_cf', np.nan)
-            metrics_collector.log('virtual_w_stab_ki_cf', np.nan)
-            metrics_collector.log('virtual_w_stab_kd_cf', np.nan)
-        
-        #self.logger.debug(f"SimulationManager -> _run_echo_baseline_interval_steps -> End") # [DEBUG ADDED]
+            if hasattr(metrics_collector, 'log_virtual_rewards'): metrics_collector.log_virtual_rewards({}) # type: ignore[operator]
+            else: metrics_collector.log('virtual_reward_kp', np.nan); metrics_collector.log('virtual_reward_ki', np.nan); metrics_collector.log('virtual_reward_kd', np.nan)
+            metrics_collector.log('virtual_w_stab_kp_cf', np.nan); metrics_collector.log('virtual_w_stab_ki_cf', np.nan); metrics_collector.log('virtual_w_stab_kd_cf', np.nan)
         return interval_reward_real, avg_w_stab_real, final_state_real, done_real, termination_reason_real, reward_dict_echo
 
-
     def _handle_decision_boundary(self,
-                                 current_time: float, # Tiempo al final del intervalo
-                                 current_state: np.ndarray, # Estado crudo al final (S')
-                                 last_interval_data: Dict, # Datos del intervalo que ACABA de terminar
-                                 interval_run_results: Dict, # Resultados del intervalo (R, w_stab, R_diff)
+                                 current_time: float, current_state: np.ndarray,
+                                 last_interval_data: Dict, interval_run_results: Dict,
                                  agent: RLAgent, controller: Controller,
                                  metrics_collector: MetricsCollector, config: Dict
                                  ) -> Tuple[Dict[str, int], Optional[Dict]]:
-        """ Maneja el aprendizaje, selección de nueva acción (A'') y logueo en el límite de decisión. """
         decision_start_time = time.time()
-        # Incrementar contador de decisiones
         agent_decision_count = last_interval_data.get('decision_count', 0) + 1
         metrics_collector.log('id_agent_decision', agent_decision_count)
-        #self.logger.debug(f"SimulationManager -> === Decision Boundary Start === (Decision #{agent_decision_count} @ t={current_time:.4f})") # [DEBUG ADDED]
-        #self.logger.debug(f"SimMan -> DecisionBoundary -> Input state S' (raw) = {np.round(current_state[:4],8)}") # [DEBUG ADDED]
+        self.logger.debug(f"[SimMan:_handle_decision_boundary] Start Decision #{agent_decision_count} @ t={current_time:.3f}s")
 
-        # 1. Estado S' (del final del intervalo)
-        next_raw_state_vector = current_state # Es el estado final del intervalo anterior
+        next_raw_state_vector = current_state
+        # state_config para agente desde config
         state_config_for_agent = config.get('environment', {}).get('agent', {}).get('params', {}).get('state_config', {})
-        # Construir S' para el agente
         next_agent_state_dict = agent.build_agent_state(next_raw_state_vector, controller, state_config_for_agent)
         episode_done = interval_run_results['done']
 
-        #self.logger.debug(f"SimMan -> DecisionBoundary -> Built next state S' (agent dict) = {next_agent_state_dict}") # [DEBUG ADDED]
-
-        # 2. Preparar datos para Agent Learn (sobre intervalo ANTERIOR S -> A' -> S')
-        #    `last_interval_data` contiene S y A'
-        #    `interval_run_results` contiene R_real, w_stab (o R_diff)
-        #    `next_agent_state_dict` contiene S'
-        learn_data = {
-            'current_agent_state_dict': last_interval_data['start_state_dict'], # S
-            'actions_dict': last_interval_data['actions_dict'],             # A'
-            'next_agent_state_dict': next_agent_state_dict,                 # S'
-            'controller': controller,                                       # Pasar controller a learn
-            'done': episode_done
-        }
-
-        # Determinar reward_info basado en la estrategia usada (la info viene de interval_run_results)
+        # Preparar reward_info para agent.learn()
+        # Esta es la "info cruda" del intervalo. El agente pasará esto a su RewardStrategy.
         reward_info_for_agent: Union[float, Tuple[float, float], Dict[str, float]]
-        if 'reward_dict_echo' in interval_run_results and interval_run_results['reward_dict_echo']: # Si es Echo y R_diff no es vacío
+        if 'reward_dict_echo' in interval_run_results and interval_run_results['reward_dict_echo']:
             reward_info_for_agent = interval_run_results['reward_dict_echo']
-        else: # Modo Global o Shadow (o Echo con simulación virtual fallida)
+        else:
             interval_reward_val = interval_run_results.get('interval_reward', 0.0)
             avg_w_stab_val = interval_run_results.get('avg_w_stab', 1.0)
             reward_info_for_agent = (float(interval_reward_val), float(avg_w_stab_val))
 
-        learn_data['reward_info'] = reward_info_for_agent # Añadir info cruda de recompensa
+        learn_data = {
+            'current_agent_state_dict': last_interval_data['start_state_dict'],
+            'actions_dict': last_interval_data['actions_dict'],
+            'reward_info': reward_info_for_agent, # Pasar la info cruda
+            'next_agent_state_dict': next_agent_state_dict,
+            'controller': controller,
+            'done': episode_done
+        }
 
-        #self.logger.debug(f"SimMan -> DecisionBoundary -> Reward Info for Learn = {reward_info_for_agent}") # [DEBUG ADDED]
-
-        # 3. Llamar a Agent Learn (usa RewardStrategy internamente)
         last_td_errors_logged = False
         try:
-            #self.logger.debug("SimMan -> DecisionBoundary -> Calling agent.learn()") # [DEBUG ADDED]
-            agent.learn(**learn_data)
+            agent.learn(**learn_data) # El agente usará su RewardStrategy internamente
             td_errors = agent.get_last_td_errors()
-            #self.logger.debug(f"SimMan -> DecisionBoundary -> TD Errors from agent = {td_errors}") # [DEBUG ADDED]
-            # Loguear TD errors DESPUÉS de learn
-            # 1.15: Usar método específico del collector si existe
-            if hasattr(metrics_collector, 'log_td_errors'):
-                # Usar método get_last_td_errors de la interfaz del agente
-                metrics_collector.log_td_errors(td_errors) # type: ignore[operator]
-                last_td_errors_logged = True
-            else: # Log manual
-                 metrics_collector.log('td_error_kp', td_errors.get('kp', np.nan))
-                 metrics_collector.log('td_error_ki', td_errors.get('ki', np.nan))
-                 metrics_collector.log('td_error_kd', td_errors.get('kd', np.nan))
-                 last_td_errors_logged = True
-                 #self.logger.debug(f"SimMan -> DecisionBoundary -> TD Errors from agent (manual) = {td_errors}") # [DEBUG ADDED]
+            if hasattr(metrics_collector, 'log_td_errors'): metrics_collector.log_td_errors(td_errors) # type: ignore[operator]
+            else: metrics_collector.log('td_error_kp', td_errors.get('kp', np.nan)); metrics_collector.log('td_error_ki', td_errors.get('ki', np.nan)); metrics_collector.log('td_error_kd', td_errors.get('kd', np.nan))
+            last_td_errors_logged = True
         except Exception as learn_e:
-            self.logger.error(f"Error en agent.learn(): {learn_e}", exc_info=True)
-            # Loguear NaN para TD errors si learn falla
+            self.logger.error(f"[SimMan:_handle_decision_boundary] Error in agent.learn(): {learn_e}", exc_info=True)
             if not last_td_errors_logged:
                  if hasattr(metrics_collector, 'log_td_errors'): metrics_collector.log_td_errors({}) # type: ignore[operator]
                  else: metrics_collector.log('td_error_kp', np.nan); metrics_collector.log('td_error_ki', np.nan); metrics_collector.log('td_error_kd', np.nan)
                  last_td_errors_logged = True
 
-        # 4. Seleccionar Siguiente Acción (A'') basada en S'
+        next_actions_prime = {g: 1 for g in ['kp', 'ki', 'kd']} # Default neutral
         if not episode_done:
-            #self.logger.debug(f"SimMan -> DecisionBoundary -> Calling agent.select_action(S')") # [DEBUG ADDED]
-            next_actions_prime = agent.select_action(next_agent_state_dict) # Nueva A''
-            #self.logger.debug(f"SimMan -> DecisionBoundary -> Selected next action A'' = {next_actions_prime}") # [DEBUG ADDED]
-            #self.logger.debug(f"SimMan -> DecisionBoundary -> Applying next action A'' to controller") # [DEBUG ADDED]
-        else:
-            # Acción neutral si termina, no se usará pero evita errores
-            next_actions_prime = {g: 1 for g in ['kp', 'ki', 'kd']}
-            #self.logger.debug(f"SimMan -> DecisionBoundary -> Episode done, neutral next action A'' = {next_actions_prime}") # [DEBUG ADDED]
-
-        # 5. Aplicar Nueva Acción A'' al controlador (para el *próximo* intervalo)
-        #    Solo aplicar si el episodio NO ha terminado
-        if not episode_done:
+            next_actions_prime = agent.select_action(next_agent_state_dict)
             self._apply_actions_to_controller(controller, next_actions_prime, config)
 
-        # 6. Loguear Métricas del Bloque de Decisión (asociadas a estado S')
-        # 1.16: Usar métodos específicos del collector si existen
+        if hasattr(metrics_collector, 'log_early_termination_metrics'): metrics_collector.log_early_termination_metrics(agent) # type: ignore
         if hasattr(metrics_collector, 'log_q_values'): metrics_collector.log_q_values(agent, next_agent_state_dict) # type: ignore[operator]
         if hasattr(metrics_collector, 'log_q_visit_counts'): metrics_collector.log_q_visit_counts(agent, next_agent_state_dict) # type: ignore[operator]
         if hasattr(metrics_collector, 'log_baselines'): metrics_collector.log_baselines(agent, next_agent_state_dict) # type: ignore[operator]
-
-        # Loguear TD errors si no se hizo antes (en caso de error learn)
-        if not last_td_errors_logged:
+        if not last_td_errors_logged: # Log TD errors si learn falló antes
              if hasattr(metrics_collector, 'log_td_errors'): metrics_collector.log_td_errors(agent.get_last_td_errors()) # type: ignore[operator]
-             else: # Log manual
-                  td_errors = agent.get_last_td_errors()
-                  metrics_collector.log('td_error_kp', td_errors.get('kp', np.nan)); metrics_collector.log('td_error_ki', td_errors.get('ki', np.nan)); metrics_collector.log('td_error_kd', td_errors.get('kd', np.nan))
+             else: td_errors = agent.get_last_td_errors(); metrics_collector.log('td_error_kp', td_errors.get('kp', np.nan)); metrics_collector.log('td_error_ki', td_errors.get('ki', np.nan)); metrics_collector.log('td_error_kd', td_errors.get('kd', np.nan))
 
         decision_duration_ms = (time.time() - decision_start_time) * 1000
         metrics_collector.log('learn_select_duration_ms', decision_duration_ms)
 
-        # 7. Preparar datos para el *siguiente* intervalo (si no 'done')
         next_interval_data = None
         if not episode_done:
             next_interval_data = {
-                'start_state_dict': next_agent_state_dict, # S del próximo será S' actual
+                'start_state_dict': next_agent_state_dict,
                 'start_raw_state_vector': np.copy(next_raw_state_vector),
-                'actions_dict': next_actions_prime.copy(),      # A' del próximo será A'' actual
-                'reward_sum': 0.0, 'w_stab_sum': 0.0, 'steps_in_interval': 0, # Resetear acumuladores
+                'actions_dict': next_actions_prime.copy(),
+                'reward_sum': 0.0, 'w_stab_sum': 0.0, 'steps_in_interval': 0,
                 'end_state_dict': None, 'done': False, 'reward_dict_echo': None,
-                'decision_count': agent_decision_count # Pasar contador actualizado
+                'decision_count': agent_decision_count
              }
-            #self.logger.debug(f"SimMan -> DecisionBoundary -> Prepared next interval data") # [DEBUG ADDED]
-
-        #self.logger.debug(f"SimulationManager -> === Decision Boundary End === (Duration: {decision_duration_ms:.3f} ms)") # [DEBUG ADDED]
-        # Devolver A'' (aplicada si !done) y datos para próximo intervalo (o None si done)
+        self.logger.debug(f"[SimMan:_handle_decision_boundary] End Decision #{agent_decision_count}. Duration: {decision_duration_ms:.2f}ms. Next Action A'': {next_actions_prime if not episode_done else 'N/A'}")
         return next_actions_prime, next_interval_data
 
     def _finalize_episode(self, episode: int, episode_metrics_dict: Dict, termination_reason: str,
@@ -675,93 +442,54 @@ class SimulationManager:
                           agent: RLAgent, results_folder: str, config: Dict,
                           summary_data_list: List, current_episode_batch: List,
                           agent_state_save_freq: int):
-        
-        #self.logger.debug(f"SimulationManager -> _finalize_episode -> Start (Ep: {episode}, Reason: {termination_reason})") # [DEBUG ADDED]
-
-        """ Realiza el resumen, loggeo y guardado parcial al final de un episodio. """
         episode_duration_s = time.time() - episode_start_time
-        # Usar np.nanmax para obtener el último ID de decisión o NaN si no hubo
-        last_decision_id = episode_metrics_dict.get('id_agent_decision', [])
-        final_decision_count = np.nanmax(last_decision_id) if last_decision_id else 0 # Default a 0 si vacío
+        last_decision_id_list = episode_metrics_dict.get('id_agent_decision', [])
+        final_decision_count = np.nanmax(last_decision_id_list) if last_decision_id_list and np.any(pd.notna(last_decision_id_list)) else 0
 
-        # --- Calcular métricas agregadas del episodio ---
         rewards = np.array(episode_metrics_dict.get('reward', []), dtype=float)
         stability_scores = np.array(episode_metrics_dict.get('stability_score', []), dtype=float)
         total_reward = np.nansum(rewards)
         avg_stability = np.nanmean(stability_scores) if stability_scores.size > 0 else np.nan
-        final_time = np.nanmax(episode_metrics_dict.get('time', [])) if episode_metrics_dict.get('time') else np.nan
+        final_time_list = episode_metrics_dict.get('time', [])
+        final_time = np.nanmax(final_time_list) if final_time_list and np.any(pd.notna(final_time_list)) else np.nan
 
-        # --- Añadir métricas finales al dict detallado ANTES de resumir ---
-        # (Necesario para que summarize_episode las incluya)
         len_first_metric = len(next(iter(episode_metrics_dict.values()), []))
-        if len_first_metric > 0: # Solo añadir si hay datos
-             episode_metrics_dict['termination_reason'] = [termination_reason] * len_first_metric
-             episode_metrics_dict['episode_duration_s'] = [episode_duration_s] * len_first_metric
+        if len_first_metric > 0:
              final_gains = controller.get_params()
-             episode_metrics_dict['final_kp'] = [final_gains.get('kp', np.nan)] * len_first_metric
-             episode_metrics_dict['final_ki'] = [final_gains.get('ki', np.nan)] * len_first_metric
-             episode_metrics_dict['final_kd'] = [final_gains.get('kd', np.nan)] * len_first_metric
-             episode_metrics_dict['total_agent_decisions'] = [final_decision_count] * len_first_metric
-             episode_metrics_dict['avg_stability_score'] = [avg_stability] * len_first_metric
-             episode_metrics_dict['total_reward'] = [total_reward] * len_first_metric
-             episode_metrics_dict['episode_time'] = [final_time] * len_first_metric
-             # Calcular performance y añadirla también
              perf = total_reward / final_time if pd.notna(total_reward) and pd.notna(final_time) and final_time > 1e-9 else np.nan
-             episode_metrics_dict['performance'] = [perf] * len_first_metric
+             # Añadir métricas precalculadas al dict detallado para que summarize_episode las use
+             for k, v_list in [('termination_reason', [termination_reason]), ('episode_duration_s', [episode_duration_s]),
+                               ('final_kp', [final_gains.get('kp', np.nan)]), ('final_ki', [final_gains.get('ki', np.nan)]),
+                               ('final_kd', [final_gains.get('kd', np.nan)]), ('total_agent_decisions', [final_decision_count]),
+                               ('avg_stability_score', [avg_stability]), ('total_reward', [total_reward]),
+                               ('episode_time', [final_time]), ('performance', [perf])]:
+                 episode_metrics_dict[k] = v_list * len_first_metric
+
+        # Agregar agentes
+        if hasattr(agent, 'get_agent_defining_vars'): episode_metrics_dict['_agent_defining_vars'] = agent.get_agent_defining_vars()
         
-        # [DEBUG ADDED] - Log resumen clave
-        #self.logger.debug(f"SimMan -> FinalizeEp -> Aggregated: R={total_reward:.8f}, StabAvg={avg_stability:.8f}, Perf={perf:.8f}, T={final_time:.3f}s, Decisions={final_decision_count}, FinalGains={final_gains}")
-        #self.logger.debug(f"SimMan -> FinalizeEp -> Calling summarize_episode") # [DEBUG ADDED]
-
-        # --- Llamar a summarize_episode con el dict completo ---
         summary = summarize_episode(episode_metrics_dict)
-        # Asegurar que 'episode' está en el resumen (lo añade summarize_episode si falta)
-        summary['episode'] = episode
+        summary['episode'] = episode # Asegurar que 'episode' esté en el resumen
         summary_data_list.append(summary)
-
-        # --- Añadir datos detallados al batch actual ---
         current_episode_batch.append(episode_metrics_dict)
 
-        # --- Log Resumen del Episodio ---
-        self.logger.info(f"Ep {episode} Resumen: "
-                         f"Term='{summary.get('termination_reason', '?')}', "
-                         f"Reward={summary.get('total_reward', np.nan):.2f}, "
-                         f"Perf={summary.get('performance', np.nan):.2f}, "
-                         f"Stab={summary.get('avg_stability_score', np.nan):.3f}, "
-                         f"Time={summary.get('episode_time', np.nan):.2f}s")
-        self.logger.info(f"Ep {episode} Resumen: "
-                         f"Decisions={summary.get('total_agent_decisions', 0)}, "
-                         f"Eps={summary.get('final_epsilon', np.nan):.3f}, "
-                         f"LR={summary.get('final_learning_rate', np.nan):.4f}, "
-                         f"Gains(Kp={summary.get('final_kp', np.nan):.2f}, "
-                         f"Ki={summary.get('final_ki', np.nan):.2f}, "
-                         f"Kd={summary.get('final_kd', np.nan):.3f}), "
+        self.logger.info(f"[SimMan:_finalize_episode] Ep {episode} Summary: Term='{summary.get('termination_reason', '?')}', "
+                         f"R={summary.get('total_reward', np.nan):.2f}, Perf={summary.get('performance', np.nan):.2f}, "
+                         f"Stab={summary.get('avg_stability_score', np.nan):.3f}, T={summary.get('episode_time', np.nan):.2f}s, "
+                         f"Decisions={summary.get('total_agent_decisions', 0)}, Gains(Kp={summary.get('final_kp', np.nan):.2f}, "
+                         f"Ki={summary.get('final_ki', np.nan):.2f}, Kd={summary.get('final_kd', np.nan):.3f}), "
                          f"Dur={summary.get('episode_duration_s', np.nan):.2f}s")
-
-
-        # --- Actualizar stats adaptativas (si aplica) ---
         try:
-            #self.logger.debug(f"SimMan -> FinalizeEp -> Calling env.update_reward_calculator_stats()") # [DEBUG ADDED]
-            # Usar interfaz del entorno
             environment.update_reward_calculator_stats(episode_metrics_dict, episode)
         except Exception as e:
-            self.logger.error(f"Error update reward stats ep {episode}: {e}", exc_info=True)
+            self.logger.error(f"[SimMan:_finalize_episode] Error update_reward_calculator_stats ep {episode}: {e}", exc_info=True)
 
-        # --- Guardado Periódico de Estado del Agente ---
         if agent_state_save_freq > 0 and (episode + 1) % agent_state_save_freq == 0:
-            #self.logger.debug(f"SimMan -> FinalizeEp -> Calling result_handler.save_agent_state()") # [DEBUG ADDED]
-            # Usar result_handler (recibe results_folder explícitamente)
             self.result_handler.save_agent_state(agent, episode, results_folder)
-        
-        #self.logger.debug(f"SimulationManager -> _finalize_episode -> End (Ep: {episode})") # [DEBUG ADDED]
-
-    # --- Método Público Principal ---
 
     def run(self) -> Tuple[List[Dict], List[Dict]]:
-        """ Ejecuta el bucle principal de simulación. """
-        self.logger.info("--- Iniciando Bucle de Simulación Principal ---")
-        # 1.17: Inicializar variables locales
-        all_episodes_detailed_data: List[Dict] = [] # Rara vez usado si guardamos por batch
+        self.logger.info("[SimMan:run] --- Starting Main Simulation Loop ---")
+        all_episodes_detailed_data: List[Dict] = []
         summary_data: List[Dict] = []
         results_folder: Optional[str] = None
         current_episode_batch: List[Dict] = []
@@ -769,239 +497,184 @@ class SimulationManager:
         environment: Optional[Environment] = None
         agent: Optional[RLAgent] = None
         controller: Optional[Controller] = None
-        # MetricsCollector es transient, se resuelve por episodio
         reward_strategy: Optional[RewardStrategy] = None
         virtual_simulator: Optional[VirtualSimulator] = None
         config: Optional[Dict] = None
-        episode = -1
+        episode_idx = -1 # Renombrar para evitar confusión con la variable de episodio de summarize_episode
 
-        # --- 1. Resolver Dependencias y Extraer Config ---
         try:
+            # Resolver dependencias una vez
             environment, agent, controller, _, reward_strategy, \
                 virtual_simulator, config, results_folder = self._resolve_dependencies()
-            # MetricsCollector se resuelve dentro del bucle de episodios
+            # MetricsCollector se resuelve dentro del bucle
 
-            # --- Extraer Parámetros Clave de Config ---
-            sim_cfg = config.get('simulation', {}); env_cfg = config.get('environment', {})
-            logging_cfg = config.get('logging', {})
+            # Leer config desde nuevas rutas
+            env_cfg_section = config.get('environment', {})
+            sim_cfg_params = env_cfg_section.get('simulation', {})
+            logging_cfg_params = config.get('logging', {})
 
-            max_episodes = env_cfg.get('max_episodes', 1)
-            decision_interval = env_cfg.get('decision_interval', 0.01)
-            dt_env = env_cfg.get('dt', 0.001) # Obtener dt de config (usado para fallback)
-            # Usar dt del environment si está disponible
-            try: dt = environment.dt # type: ignore[attr-defined]
-            except AttributeError: dt = dt_env
+            max_episodes = sim_cfg_params.get('max_episodes', 1)
+            decision_interval = sim_cfg_params.get('decision_interval', 0.01)
+            dt = environment.dt if hasattr(environment, 'dt') else sim_cfg_params.get('dt', 0.001) # type: ignore[attr-defined]
 
             if not isinstance(decision_interval, (float, int)) or decision_interval < dt:
-                 self.logger.warning(f"Decision interval ({decision_interval}) < dt ({dt}). Usando dt como intervalo.")
+                 self.logger.warning(f"[SimMan:run] Decision interval ({decision_interval}) < dt ({dt}). Using dt as interval.")
                  decision_interval = dt
-            episodes_per_file = sim_cfg.get('episodes_per_file', 100) # Batch size
-            agent_state_save_freq = sim_cfg.get('agent_state_save_frequency', 0) # Default a 0 (deshabilitado)
-            if sim_cfg.get('save_agent_state', False) and agent_state_save_freq <= 0:
-                 agent_state_save_freq = max_episodes # Guardar al final si está habilitado y freq=0
-            elif not sim_cfg.get('save_agent_state', False):
-                 agent_state_save_freq = 0 # Deshabilitar si save_agent_state es false
 
-            log_flush_frequency = logging_cfg.get('log_save_frequency', 0) # Freq para flush
+            episodes_per_file = env_cfg_section.get('episodes_per_file', 100)
+            agent_state_save_freq = env_cfg_section.get('agent_state_save_frequency', 0)
+            if env_cfg_section.get('save_agent_state', False) and agent_state_save_freq <= 0:
+                 agent_state_save_freq = max_episodes
+            elif not env_cfg_section.get('save_agent_state', False):
+                 agent_state_save_freq = 0
 
-            # Determinar si es Echo Baseline
-            is_echo_baseline = isinstance(reward_strategy, EchoBaselineRewardStrategy)
-            if is_echo_baseline and virtual_simulator is None:
-                 # Fail-Fast si Echo requiere simulador pero no está
-                 msg = "Echo Baseline activado pero VirtualSimulator no resuelto/configurado."
+            log_flush_frequency = logging_cfg_params.get('log_save_frequency', 0)
+
+            # Determinar si se necesita simulador virtual basado en la estrategia
+            # Asumir que la estrategia tiene un atributo 'needs_virtual_simulation'
+            # Este atributo debe ser añadido a la interfaz RewardStrategy y sus implementaciones.
+            # Por ahora, haremos un isinstance check, pero esto se debe cambiar.
+            # needs_virtual_sim = getattr(reward_strategy, 'needs_virtual_simulation', False) # Ideal
+            needs_virtual_sim = isinstance(reward_strategy, EchoBaselineRewardStrategy) # Temporal
+            if needs_virtual_sim and virtual_simulator is None:
+                 msg = f"[SimMan:run] RewardStrategy '{type(reward_strategy).__name__}' requires VirtualSimulator, but none was resolved."
                  self.logger.critical(msg); raise ValueError(msg)
-            
-            # [DEBUG ADDED] - Log config clave una vez
-            #self.logger.debug(f"SimulationManager -> run -> Config: max_ep={max_episodes}, dec_int={decision_interval}, dt={dt}, batch={episodes_per_file}, save_freq={agent_state_save_freq}, echo={is_echo_baseline}")
+            self.logger.info(f"[SimMan:run] Simulation Config: MaxEp={max_episodes}, DecisionInt={decision_interval:.4f}s, dt={dt:.4f}s, BatchSize={episodes_per_file}, AgentSaveFreq={agent_state_save_freq}, VirtualSimNeeded={needs_virtual_sim}")
 
-            # Preparar handlers para flush periódico
             if log_flush_frequency > 0:
-                 # Obtener handlers del logger raíz
                  file_handlers = [h for h in logging.getLogger().handlers if isinstance(h, logging.FileHandler)]
-                 if not file_handlers:
-                      self.logger.warning("log_flush_frequency > 0 pero no se encontraron FileHandlers.")
-                      log_flush_frequency = 0 # Deshabilitar si no hay handlers
+                 if not file_handlers: log_flush_frequency = 0; self.logger.warning("[SimMan:run] Log flush freq > 0 but no FileHandlers found.")
 
-            # --- 2. Bucle Principal de Episodios ---
-            self.logger.info(f"Iniciando simulación para {max_episodes} episodios...")
-            for episode in range(max_episodes):
-                #self.logger.debug(f"SimulationManager -> === Episodio {episode} Start ===") # [DEBUG ADDED]
+            self.logger.info(f"[SimMan:run] Starting simulation for {max_episodes} episodes...")
+            for episode_idx in range(max_episodes):
                 episode_start_time = time.time()
-                # 1.18: Resolver MetricsCollector (transient) para este episodio
-                metrics_collector = self.container.resolve(MetricsCollector)
-                if metrics_collector is None: # Debería fallar DI si no se puede resolver
-                     self.logger.critical(f"Fallo crítico al resolver MetricsCollector para episodio {episode}. Abortando.")
-                     break # Salir del bucle
+                metrics_collector = self.container.resolve(MetricsCollector) # Resolver transient
+                if metrics_collector is None:
+                     self.logger.critical(f"[SimMan:run] CRITICAL: Failed to resolve MetricsCollector for ep {episode_idx}. Aborting."); break
 
-                # --- 2.a Inicializar Episodio ---
                 try:
-                    # Pasar componentes resueltos y config
                     current_state, last_interval_data = self._initialize_episode(
-                        episode, environment, agent, controller, metrics_collector, config
+                        episode_idx, environment, agent, controller, metrics_collector, config # type: ignore[arg-type]
                     )
                 except Exception as init_e:
-                    # Loguear error y saltar al siguiente episodio
-                    self.logger.error(f"Fallo inicializando episodio {episode}: {init_e}. Saltando episodio.", exc_info=True)
-                    # Limpiar datos del episodio fallido si es necesario (MetricsCollector ya está limpio)
-                    continue # Saltar al siguiente episodio
+                    self.logger.error(f"[SimMan:run] Failed initializing ep {episode_idx}: {init_e}. Skipping.", exc_info=True)
+                    continue
 
-                # --- 2.b Bucle de Intervalos de Decisión ---
                 current_time = 0.0
                 episode_done = False
                 termination_reason = "unknown"
-                total_sim_time_per_episode = env_cfg.get('total_time', 5.0)
-
-                #self.logger.debug(f"SimMan -> run -> [Ep {episode}] Entering Interval Loop (Max T={total_sim_time_per_episode}s)") # [DEBUG ADDED]
+                total_sim_time_per_episode = sim_cfg_params.get('total_time', 5.0)
 
                 while not episode_done and current_time < total_sim_time_per_episode:
-                    # Calcular duración del intervalo (clamp al tiempo restante)
                     interval_duration = min(decision_interval, total_sim_time_per_episode - current_time)
-                    if interval_duration <= dt / 2.0: # Evitar intervalos demasiado cortos
-                         break # Salir si el tiempo restante es menor que medio dt
-                    
-                    # [DEBUG ADDED]
-                    #self.logger.debug(f"SimMan -> run -> [Ep {episode}] --- Interval Start --- (t={current_time:.4f}, dur={interval_duration:.4f})")
+                    if interval_duration <= dt / 2.0: break
 
-                    # Acciones A' aplicadas durante este intervalo (vienen de last_interval_data)
                     actions_applied = last_interval_data['actions_dict'].copy()
-
-                    # --- Ejecutar Pasos del Intervalo (Real o con Echo) ---
                     interval_run_results: Dict[str, Any] = {}
                     try:
-                        if is_echo_baseline:
-                            # Ejecutar con simulaciones virtuales
-                            interval_reward, avg_w_stab, final_state, interval_done, term_reason, reward_dict_echo = \
+                        if needs_virtual_sim and virtual_simulator: # Chequear virtual_simulator de nuevo
+                            interval_reward, avg_w_stab, final_state, interval_done, term_reason, r_dict_echo = \
                                 self._run_echo_baseline_interval_steps(
-                                    current_time, interval_duration, current_state, environment, controller, agent,
-                                    metrics_collector, virtual_simulator, config, actions_applied # type: ignore[arg-type]
+                                    current_time, interval_duration, current_state, environment, controller, agent, # type: ignore[arg-type]
+                                    metrics_collector, virtual_simulator, config, actions_applied
                                 )
-                            interval_run_results = {
-                                'interval_reward': interval_reward, 'avg_w_stab': avg_w_stab,
-                                'final_state': final_state, 'done': interval_done,
-                                'termination_reason': term_reason, 'reward_dict_echo': reward_dict_echo
-                            }
-                        else: # Modo Global o Shadow
+                            interval_run_results = {'interval_reward': interval_reward, 'avg_w_stab': avg_w_stab, 'final_state': final_state, 'done': interval_done, 'termination_reason': term_reason, 'reward_dict_echo': r_dict_echo}
+                        else:
                             interval_reward, avg_w_stab, final_state, interval_done, term_reason = \
                                 self._run_standard_interval_steps(
-                                    current_time, interval_duration, current_state, environment, controller, agent,
+                                    current_time, interval_duration, current_state, environment, controller, agent, # type: ignore[arg-type]
                                     metrics_collector, config, actions_applied
                                 )
-                            interval_run_results = {
-                                'interval_reward': interval_reward, 'avg_w_stab': avg_w_stab,
-                                'final_state': final_state, 'done': interval_done,
-                                'termination_reason': term_reason
-                            }
-                    except RuntimeError as step_e: # Capturar error de _run_standard_interval_steps
-                         self.logger.error(f"Error Runtime durante ejecución intervalo ep {episode} t={current_time:.3f}: {step_e}. Terminando episodio.")
-                         episode_done = True
-                         termination_reason = "interval_runtime_error"
-                         # El estado actual podría ser inválido, intentar finalizar con lo que hay
-                         current_state = last_interval_data.get('start_raw_state_vector', current_state) # Volver al estado inicial del intervalo
-                         break # Salir del bucle while not episode_done
+                            interval_run_results = {'interval_reward': interval_reward, 'avg_w_stab': avg_w_stab, 'final_state': final_state, 'done': interval_done, 'termination_reason': term_reason}
+                    except RuntimeError as step_e:
+                         self.logger.error(f"[SimMan:run] Runtime error during interval ep {episode_idx} t={current_time:.3f}s: {step_e}. Terminating episode.")
+                         episode_done = True; termination_reason = "interval_runtime_error"
+                         current_state = last_interval_data.get('start_raw_state_vector', current_state)
+                         break
 
-                    # Actualizar estado y tiempo
                     current_state = interval_run_results['final_state']
-                    # Usar tiempo acumulado del collector para mayor precisión
-                    last_logged_time = metrics_collector.get_metrics().get('time', [current_time])[-1]
-                    current_time = last_logged_time # Actualizar tiempo basado en último log
-                    # Actualizar 'done' y razón de terminación
+                    last_logged_time_list = metrics_collector.get_metrics().get('time', [current_time])
+                    current_time = last_logged_time_list[-1] if last_logged_time_list else current_time
                     episode_done = interval_run_results['done']
                     if episode_done and termination_reason == "unknown":
-                         # [DEBUG ADDED]
-                         #self.logger.debug(f"SimMan -> run -> [Ep {episode}] --- Interval End --- (t={current_time:.4f}, done={episode_done}, reason='{termination_reason}')")
                          termination_reason = interval_run_results.get('termination_reason', 'interval_ended_done')
 
-                    # --- Manejar Límite de Decisión (Aprendizaje y Selección A'') ---
                     try:
                         _, next_interval_data = self._handle_decision_boundary(
                             current_time, current_state, last_interval_data, interval_run_results,
-                            agent, controller, metrics_collector, config
+                            agent, controller, metrics_collector, config # type: ignore[arg-type]
                         )
                     except Exception as decision_e:
-                         self.logger.error(f"Error durante _handle_decision_boundary ep {episode} t={current_time:.3f}: {decision_e}. Terminando episodio.", exc_info=True)
-                         episode_done = True
-                         termination_reason = "decision_boundary_error"
-                         next_interval_data = None # No continuar
+                        self.logger.error(f"[SimMan:run] Error in _handle_decision_boundary ep {episode_idx} t={current_time:.3f}s: {decision_e}. Terminating.", exc_info=True)
+                        episode_done = True; termination_reason = "decision_boundary_error"; next_interval_data = None
 
-                    # Preparar para el siguiente intervalo
-                    if episode_done:
-                        last_interval_data = None # No más intervalos
-                        if termination_reason == "unknown": # Si termina por tiempo exacto
-                             termination_reason = "time_limit"
-                    elif next_interval_data is not None:
-                        last_interval_data = next_interval_data
-                    else: # Caso raro: no 'done' pero no hay datos para el siguiente
-                        self.logger.error("Error lógico: Episodio no terminado pero no hay datos para el siguiente intervalo. Terminando episodio.")
+                    # --- EVALUAR SI episode_done POR EARLY TERMINATION
+                    if next_interval_data is None: # Esto significa que episode_done se activó en _handle_decision_boundary | OJO podría ser por ERROR
+                        episode_done = True 
+                        # termination_reason ya debería estar seteada si _handle_decision_boundary falló
+                        if termination_reason == "unknown": 
+                            termination_reason = "decision_boundary_no_next_data"
+                        last_interval_data = None # Se propaga valor por consistencia
+                        break # Salir del bucle while
+
+                    last_interval_data = next_interval_data # Asignar para el siguiente ciclo del while
+
+                    if agent.early_termination_enabled and hasattr(agent, 'should_episode_terminate_early') and agent.should_episode_terminate_early():
+                        self.logger.info(f"[SimMan:run Ep {episode_idx}] Agent requested early termination at t={current_time:.3f}s.")
                         episode_done = True
-                        termination_reason = "interval_logic_error"
-                        last_interval_data = None
+                        if termination_reason == "unknown": # Solo si no hay otra razón más específica
+                            termination_reason = "agent_early_termination"
+                        # No hay 'break' inmediato aquí; la condición de `episode_done` se evaluará al inicio del siguiente `while`
+                    
+                    if episode_done: last_interval_data = None
+                    elif next_interval_data is not None: last_interval_data = next_interval_data
+                    else:
+                        self.logger.error(f"[SimMan:run] Logic error: Ep {episode_idx} not done but no next_interval_data. Terminating.")
+                        episode_done = True; termination_reason = "interval_logic_error"; last_interval_data = None
+                    if episode_done: break
 
-                    # Salir si el episodio terminó por alguna razón
-                    if episode_done:
-                         break
-
-                # --- Fin Bucle de Intervalos ---
-                #self.logger.debug(f"SimMan -> run -> [Ep {episode}] Exited Interval Loop") # [DEBUG ADDED]
-
-                # --- 2.c Finalizar Episodio ---
                 try:
-                    # Recopilar métricas finales del collector de este episodio
                     episode_metrics = metrics_collector.get_metrics()
                     self._finalize_episode(
-                        episode, episode_metrics, termination_reason, episode_start_time, controller,
-                        environment, agent, results_folder, config, summary_data, current_episode_batch,
+                        episode_idx, episode_metrics, termination_reason, episode_start_time, controller, # type: ignore[arg-type]
+                        environment, agent, results_folder, config, summary_data, current_episode_batch, # type: ignore[arg-type]
                         agent_state_save_freq
                     )
                 except Exception as finalize_e:
-                     self.logger.error(f"Error durante finalización del episodio {episode}: {finalize_e}", exc_info=True)
-                     # No continuar con el guardado de batch si la finalización falló
+                     self.logger.error(f"[SimMan:run] Error finalizing ep {episode_idx}: {finalize_e}", exc_info=True)
 
-                # --- Guardado de Batch de Episodios ---
-                if episodes_per_file > 0 and ((episode + 1) % episodes_per_file == 0 or episode == max_episodes - 1):
-                    if current_episode_batch:
-                        #self.logger.debug(f"SimMan -> run -> Saving episode batch (up to ep {episode})") # [DEBUG ADDED]
-                        # Pasar results_folder explícitamente
-                        self.result_handler.save_episode_batch(current_episode_batch, results_folder, episode)
-                        current_episode_batch = [] # Limpiar batch
+                if episodes_per_file > 0 and ((episode_idx + 1) % episodes_per_file == 0 or episode_idx == max_episodes - 1):
+                    if current_episode_batch and results_folder:
+                        self.result_handler.save_episode_batch(current_episode_batch, results_folder, episode_idx)
+                        current_episode_batch = []
 
-                # --- Flush Periódico de Logs ---
-                if log_flush_frequency > 0 and (episode + 1) % log_flush_frequency == 0:
-                    #self.logger.debug(f"Flushing logs file after ep {episode}...")
+                if log_flush_frequency > 0 and (episode_idx + 1) % log_flush_frequency == 0:
                     for h in file_handlers:
                         try: h.flush()
-                        except Exception as e_flush: self.logger.warning(f"Error flushing handler {h}: {e_flush}")
-                #self.logger.debug(f"SimulationManager -> === Episodio {episode} End ===") # [DEBUG ADDED]
-
-            # --- Fin Bucle de Episodios ---
+                        except Exception as e_flush: self.logger.warning(f"[SimMan:run] Error flushing handler {h}: {e_flush}")
+            self.logger.info(f"[SimMan:run] --- All {max_episodes} Episodes Processed ---")
 
         except (ValueError, RuntimeError, AttributeError, TypeError, KeyError) as e:
-            # Capturar errores críticos durante la configuración o el bucle principal
-            self.logger.critical(f"Error CRÍTICO en bucle de simulación (Ep ~{episode}): {e}", exc_info=True)
-            # Intentar guardar batch parcial si existe
+            self.logger.critical(f"[SimMan:run] CRITICAL Error in simulation loop (Ep ~{episode_idx}): {e}", exc_info=True)
             if current_episode_batch and results_folder and os.path.isdir(results_folder):
-                 self.logger.warning("Intentando guardar batch parcial de episodios tras error crítico...")
-                 try:
-                     self.result_handler.save_episode_batch(current_episode_batch, results_folder, episode if 'episode' in locals() else -1)
-                 except Exception as save_e:
-                      self.logger.error(f"Fallo al guardar batch parcial: {save_e}")
-        except Exception as e: # Capturar cualquier otra excepción inesperada
-            self.logger.critical(f"Error INESPERADO en bucle de simulación (Ep ~{episode}): {e}", exc_info=True)
-            # Intentar guardar batch parcial
+                 self.logger.warning("[SimMan:run] Attempting to save partial batch after critical error...")
+                 try: self.result_handler.save_episode_batch(current_episode_batch, results_folder, episode_idx)
+                 except Exception as save_e: self.logger.error(f"[SimMan:run] Failed saving partial batch: {save_e}")
+        except Exception as e:
+            self.logger.critical(f"[SimMan:run] UNEXPECTED Error in simulation loop (Ep ~{episode_idx}): {e}", exc_info=True)
             if current_episode_batch and results_folder and os.path.isdir(results_folder):
-                 self.logger.warning("Intentando guardar batch parcial de episodios tras error inesperado...")
-                 try:
-                      self.result_handler.save_episode_batch(current_episode_batch, results_folder, episode if 'episode' in locals() else -1)
-                 except Exception as save_e:
-                      self.logger.error(f"Fallo al guardar batch parcial: {save_e}")
-
+                 self.logger.warning("[SimMan:run] Attempting to save partial batch after unexpected error...")
+                 try: self.result_handler.save_episode_batch(current_episode_batch, results_folder, episode_idx)
+                 except Exception as save_e: self.logger.error(f"[SimMan:run] Failed saving partial batch: {save_e}")
         finally:
-            # Flush final de logs
             if file_handlers:
-                 self.logger.info("Realizando flush final de logs...")
-                 for h in file_handlers:
-                      try: h.flush()
-                      except Exception as e_flush_final: self.logger.warning(f"Error flush final handler {h}: {e_flush_final}")
-            self.logger.info("--- Simulación Principal Finalizada ---")
-
-        # Devolver datos de resumen (los datos detallados se guardan por batch)
-        return all_episodes_detailed_data, summary_data # all_episodes_data suele estar vacío
+             self.logger.info("[SimMan:run] Performing final log flush...")
+             for h in file_handlers:
+                  try: h.flush()
+                  except Exception as e_flush_final: self.logger.warning(f"[SimMan:run] Error final flushing handler {h}: {e_flush_final}")
+            # Limpieza explícita
+            #del environment, agent, controller, reward_strategy, virtual_simulator, config, metrics_collector
+            #del all_episodes_detailed_data, summary_data, current_episode_batch # Aunque algunos ya deberían estar vacíos/liberados
+            #gc.collect()
+            self.logger.info("[SimMan:run] --- Main Simulation Loop Finished & Cleanup Attempted ---")
+        return all_episodes_detailed_data, summary_data # all_episodes_detailed_data debería estar vacío si se usa batch

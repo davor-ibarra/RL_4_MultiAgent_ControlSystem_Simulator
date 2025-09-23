@@ -3,12 +3,30 @@
 # ========================================
 environment:
   type: pendulum_environment
-  dt: 0.001                      # Simulation time step (s)
-  total_time: 5.0                # Total simulation time per episode (s)
-  decision_interval: 0.01        # Time between agent decisions (s) - must be multiple of dt
-  max_episodes: 10000            # Maximum number of episodes to run
   results_folder: 'results_history' # Base folder for saving results
-
+  # Data config
+  episodes_per_file: 250
+  save_agent_state: true
+  agent_state_save_frequency: 2000
+  # Initial Conditions for Episodes
+  initial_conditions:
+    x0: [0.0, 0.0, 0.0349066, 0.0] # 0.0349066(2°) 0.0873 (5°) 0.1746 (10°)
+  # Simulation Manager
+  simulation:
+    max_episodes: 2             # Maximum number of episodes to run
+    total_time: 5.0             # Total simulation time per episode (s)
+    dt: 0.001                   # Simulation time step (s)
+    decision_interval: 0.01     # Time between agent decisions (s) - must be multiple of dt
+    # Boundary constraint
+    use_cart_limit: true
+    cart_limit: 5.0
+    use_angle_limit: true
+    angle_limit: 1.0472
+    # Stabilization Criteria
+    stabilization_criteria:
+      angle_threshold: 0.001
+      velocity_threshold: 0.005
+    # 
   # --- Dynamic System ---
   system:
     type: inverted_pendulum
@@ -19,7 +37,6 @@ environment:
       g: 9.81                    # Acceleration due to gravity (m/s^2)
       cr: 0.0                    # Damping coefficient of the cart (friction)
       ca: 0.0                    # Damping coefficient of the pendulum pivot (friction)
-
   # --- Controller ---
   controller:
     type: pid
@@ -28,7 +45,14 @@ environment:
       ki: 0.0                    # Initial Integral gain
       kd: 0.0                    # Initial Derivative gain
       setpoint: 0.0              # Target value for the controlled variable (pendulum angle = 0 rad)
-
+    # PID Adaptation Specifics
+    pid_adaptation:
+      enabled: true
+      gain_step: 5.0
+      variable_step: false
+      params:
+        # gain_step: {kp: 5.0, ki: 1.0, kd: 0.5} # Example if variable_step=true
+      reset_gains_each_episode: true
   # --- Agent ---
   agent:
     type: pid_qlearning
@@ -45,25 +69,39 @@ environment:
       learning_rate_decay: 0.999425 # Decay factor per episode | 0.999425 (8000) | 0.999693035777428 (15000)
       learning_rate_min: 0.01    # Minimum learning rate
       use_learning_rate_decay: true # Enable/disable learning rate decay
-      # Agent State Discretization Configuration
+      # Agents and State Discretization Configuration
       state_config:
-        # Base Gain State Variables
-        kp:                      {enabled: true, min: 0.0, max: 100.0, bins: 21, state_vars: ['ki', 'kd']} # state_vars: ['angle','angular_velocity','ki', etc.]
-        ki:                      {enabled: false, min: 0.0, max: 100.0, bins: 21, state_vars: []}
-        kd:                      {enabled: false, min: 0.0, max: 100.0, bins: 21, state_vars: []}
-        # Additional State Variables
-        angle:                   {enabled: false, min: -0.03491, max: 0.03491, bins: 3}
-        angular_velocity:        {enabled: false, min: -0.5, max: 0.5, bins: 3}
-        cart_position:           {enabled: false, min: -1.0, max: 1.0, bins: 3}
-        cart_velocity:           {enabled: false, min: -1.0, max: 1.0, bins: 3}
-
+        # Base State Variables
+        kp:                      {enabled_agent: true, min: 0.0, max: 100.0, bins: 21, state_vars: ['angle']} # state_vars: ['angle','angular_velocity','ki', etc.]
+        ki:                      {enabled_agent: true, min: 0.0, max: 100.0, bins: 21, state_vars: ['angle']}
+        kd:                      {enabled_agent: true, min: 0.0, max: 100.0, bins: 21, state_vars: ['angle']}
+        angle:                   {enabled_agent: false, min: -0.03491, max: 0.03491, bins: 3, state_vars: []}
+        angular_velocity:        {enabled_agent: false, min: -0.61, max: 0.61, bins: 6, state_vars: []}
+        cart_position:           {enabled_agent: false, min: -1.0, max: 1.0, bins: 3, state_vars: []}
+        cart_velocity:           {enabled_agent: false, min: -1.0, max: 1.0, bins: 3, state_vars: []}
+      # Early termination
+      early_termination:
+        enabled: true
+        improvement_metric_source: "interval_avg_stability" # O "interval_avg_stability"
+        patience_type: "fixed" # "fixed" o "adaptive"
+        initial_patience_kp: 100
+        initial_patience_ki: 100
+        initial_patience_kd: 100
+        min_patience: 20           # Siempre debe ser mayor a 0
+        max_patience: 200
+        patience_adjustment_rate: 1 # eta
+        use_stage_learning_for_base_patience: true # opcional
+        penalty_reward_params:
+          enabled: true
+          penalty_beta_init_kp: 0.9
+          penalty_beta_init_ki: 0.9
+          penalty_beta_init_kd: 0.9
   # --- Reward Configuration ---
   reward_setup:
-
     # --- 1. Agent Learning Strategy Configuration ---
     # Defines how the reward R_learn used for the agent's update is derived.
-    learning_strategy:
-      type: echo_baseline # Type of learning strategy. Options: 'global', 'shadow_baseline', 'echo_baseline'
+    reward_strategy:
+      type: global # Type of learning strategy. Options: 'global', 'shadow_baseline', 'echo_baseline'
       # Parameters specific to the chosen strategy:
       strategy_params:
         global: {}
@@ -71,7 +109,6 @@ environment:
         shadow_baseline: # Used if type is 'shadow_baseline'
           beta: 0.2 # Learning rate for the baseline B(s) update
           baseline_init_value: 0.0 # Initial value for B(s) entries
-
     # --- 2. Reward Calculation Configuration ---
     # Defines how the instantaneous reward R(s,a,s') is calculated per step.
     calculation:
@@ -91,12 +128,10 @@ environment:
           cart_velocity: 1.0
           force: 10.0
           time: 1.0
-      # Note: If method is 'stability_calculator', it uses the 'lambda' parameter from the *enabled* stability_calculator below.
-
-    # --- 3. Stability Score (w_stab) Configuration ---
-    # Defines how the instantaneous stability score (w_stab) is calculated.
+      # --- 3. Stability Score (w_stab) Configuration ---
+      # Defines how the instantaneous stability score (w_stab) is calculated.
       stability_calculator:
-        enabled: true # Calculate w_stab? (Required if learning_strategy.type is 'shadow_baseline')
+        #enabled: true # Calculate w_stab? (Required if learning_strategy.type is 'shadow_baseline') DROP
         type: simple_exponential # Type of stability calculator. Options: 'ira_instantaneous', 'simple_exponential'
         simple_exponential_params: # Used if type is 'simple_exponential'
         # Note: This calculator does not have a separate lambda for reward. If calculation.method is 'stability_calculator' with this type, the reward will be equal to w_stab.
@@ -110,7 +145,7 @@ environment:
               angular_velocity: 0.1
               cart_position: 1.0
               cart_velocity: 1.0
-        ira_params: # Used if type is 'ira_instantaneous'
+        ira_instantaneous_params: # Used if type is 'ira_instantaneous_params'
           lambda: 1.0 # lambda: Sensitivity factor ONLY used if calculation.method is 'stability_calculator'
           weights:
             angle: 0.1
@@ -131,40 +166,6 @@ environment:
   # --- End of Reward Configuration ---
 
 # ========================================
-# Simulation Control & Termination
-# ========================================
-simulation:
-  episodes_per_file: 250
-  use_cart_limit: true
-  cart_limit: 5.0
-  use_angle_limit: true
-  angle_limit: 1.0472
-  save_agent_state: true
-  agent_state_save_frequency: 2000
-
-# ========================================
-# Initial Conditions for Episodes
-# ========================================
-initial_conditions:
-  x0: [0.0, 0.0, 0.0349066, 0.0] # 0.0349066(2°) 0.0873 (5°) 0.1746 (10°)
-
-# ========================================
-# PID Adaptation Specifics
-# ========================================
-pid_adaptation:
-  gain_step: 5.0
-  # gain_step: {kp: 5.0, ki: 1.0, kd: 0.5} # Example if variable_step=true
-  variable_step: false
-  reset_gains_each_episode: true
-
-# ========================================
-# Stabilization Criteria
-# ========================================
-stabilization_criteria:
-  angle_threshold: 0.001
-  velocity_threshold: 0.005
-
-# ========================================
 # Visualization Settings
 # ========================================
 visualization:
@@ -175,11 +176,11 @@ visualization:
 # Logging Configuration
 # ========================================
 logging:
-  log_to_file: false                 # Enable/disable logging to file
+  log_to_file: true                 # Enable/disable logging to file
   filename: log_simulation_run.log      # Base name for the log file (will be placed in results folder)
   # List of levels to include in the file (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)
   # The lowest level specified determines the overall minimum level processed.
-  levels: #[DEBUG, INFO, ERROR, CRITICAL]
+  levels: [DEBUG, INFO, WARNING, ERROR, CRITICAL]
   # How often (in episodes) to save the current log buffer to the file and clear the buffer
   # Set to 0 or negative to only save at the very end.
   log_save_frequency: 100

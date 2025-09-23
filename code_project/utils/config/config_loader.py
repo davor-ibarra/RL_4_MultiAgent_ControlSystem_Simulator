@@ -1,3 +1,4 @@
+# utils/config/config_loader.py
 import os
 import sys
 import numpy as np
@@ -8,8 +9,8 @@ from typing import Dict, Any, Optional, Tuple
 # Configuración básica de logging si este módulo se usa standalone
 # (Se mantiene por si acaso, pero main.py configura el logging principal)
 logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(module)s - %(message)s')
-# 2.1: Usar logger específico del módulo
+                    format='%(asctime)s - %(levelname)-4s - %(name)-4s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M')
 logger = logging.getLogger(__name__)
 
 def load_and_validate_config(
@@ -18,10 +19,9 @@ def load_and_validate_config(
     """
     Carga la configuración principal, la de visualización y la de logging desde archivos YAML.
     Realiza validaciones de estructura y contenido esenciales.
-    Las validaciones detalladas de parámetros de componentes se delegan a las factorías/componentes.
 
     Args:
-        config_filename (str): Nombre del archivo de configuración principal (relativo a este script).
+        config_filename (str): Nombre del archivo de configuración principal.
 
     Returns:
         Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Dict[str, Any]]:
@@ -30,187 +30,171 @@ def load_and_validate_config(
           vis_config será None si la visualización está desactivada o hay error.
           logging_config será un diccionario (vacío por defecto).
     """
-    # 2.2: Obtener directorio del script actual para rutas relativas
     script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
     main_config_path = os.path.join(script_dir, config_filename)
-    main_config, vis_config = None, None
-    logging_config = {} # Default
+    main_config: Optional[Dict[str, Any]] = None
+    vis_config: Optional[Dict[str, Any]] = None
+    logging_config: Dict[str, Any] = {}
 
-    # --- [1] Carga Main Config ---
-    logger.info(f"Intentando cargar config principal desde: {main_config_path}")
+    logger.info(f"[ConfigLoader] Attempting to load main config from: {main_config_path}")
     if not os.path.exists(main_config_path):
-        logger.error(f"Error crítico: Archivo config principal no encontrado: {main_config_path}")
-        return None, None, {} # Fail-Fast
+        logger.error(f"[ConfigLoader] CRITICAL: Main config file not found: {main_config_path}")
+        return None, None, {}
 
     try:
         with open(main_config_path, 'r', encoding='utf-8') as file:
             main_config = yaml.safe_load(file)
             if not isinstance(main_config, dict):
-                # Lanzar error si el contenido no es un diccionario
-                raise TypeError(f"Contenido de '{config_filename}' no es un diccionario YAML válido.")
-            logger.info(f"Configuración principal cargada desde: {main_config_path}")
+                raise TypeError(f"Content of '{config_filename}' is not a valid YAML dictionary.")
+            logger.info(f"[ConfigLoader] Main configuration loaded from: {main_config_path}")
 
         # --- [2] Validación Estructura Esencial ---
-        # 2.3: Validar solo presencia y tipo de secciones clave.
-        required_sections = [
-            'environment', 'simulation', 'pid_adaptation',
-            'initial_conditions', 'logging', 'visualization' # Añadir logging/vis para asegurar extracción
-        ]
-        for section in required_sections:
+        # Nivel Superior
+        required_top_level_sections = ['environment', 'visualization', 'logging']
+        for section in required_top_level_sections:
             if section not in main_config:
-                raise KeyError(f"Sección requerida '{section}' ausente en '{config_filename}'.")
-            # Permitir que logging/visualization sean None o False, pero deben existir o ser dict
-            if section not in ['logging', 'visualization'] and not isinstance(main_config[section], dict):
-                 raise TypeError(f"Sección '{section}' debe ser un diccionario en '{config_filename}'.")
-            elif section in ['logging', 'visualization'] and main_config[section] is not None and not isinstance(main_config[section], dict):
-                 # Si existen pero no son dict (y no son None), es error
-                 if isinstance(main_config[section], bool) and section == 'visualization' and not main_config[section]:
-                      pass # Permitir visualization: false
-                 else:
-                      raise TypeError(f"Sección '{section}' debe ser un diccionario o null/false(vis) en '{config_filename}'.")
+                raise KeyError(f"Required top-level section '{section}' absent in '{config_filename}'.")
+            if section == 'environment' and not isinstance(main_config[section], dict):
+                raise TypeError(f"Top-level section '{section}' must be a dictionary.")
+            elif section in ['visualization', 'logging'] and \
+                 main_config[section] is not None and not isinstance(main_config[section], dict):
+                if isinstance(main_config[section], bool) and section == 'visualization' and not main_config[section]:
+                    pass # Permitir visualization: false
+                else:
+                    raise TypeError(f"Top-level section '{section}' must be a dictionary or null/false (for visualization).")
+        logger.debug("[ConfigLoader] Top-level sections validated.")
 
-
-        # 2.4: Validar estructura interna de 'reward_setup' (se mantiene por complejidad)
+        # Nivel 'environment'
         env_cfg = main_config.get('environment', {})
-        if 'reward_setup' not in env_cfg:
-            raise KeyError("Sección 'environment' debe contener 'reward_setup'.")
-        reward_setup = env_cfg['reward_setup']
-        if not isinstance(reward_setup, dict):
-            raise TypeError("'environment.reward_setup' debe ser un diccionario.")
+        required_env_sections = [
+            'results_folder', 'simulation', 'system',
+            'controller', 'agent', 'reward_setup', 'initial_conditions'
+        ]
+        for section in required_env_sections:
+            if section not in env_cfg:
+                raise KeyError(f"Required section 'environment.{section}' absent.")
+            if not isinstance(env_cfg[section], dict) and section not in ['results_folder']: # results_folder es string
+                 raise TypeError(f"Section 'environment.{section}' must be a dictionary (except results_folder).")
+        logger.debug("[ConfigLoader] 'environment' sub-sections validated.")
 
-        # 2.4.1: Validar 'calculation'
-        calc_cfg = reward_setup.get('calculation')
-        if not isinstance(calc_cfg, dict): raise TypeError("'reward_setup.calculation' debe ser dict.")
-        if 'method' not in calc_cfg: raise KeyError("'reward_setup.calculation' falta 'method'.")
-        # No validar params internos de 'gaussian', se hará en RewardFactory/Componente
+        # Nivel 'environment.controller'
+        controller_cfg = env_cfg.get('controller', {})
+        if 'pid_adaptation' not in controller_cfg or not isinstance(controller_cfg['pid_adaptation'], dict):
+            raise KeyError("Required section 'environment.controller.pid_adaptation' absent or not a dictionary.")
+        logger.debug("[ConfigLoader] 'environment.controller.pid_adaptation' validated.")
 
-        # 2.4.2: Validar 'stability_calculator' (estructura básica)
-        stab_cfg = reward_setup.get('calculation').get('stability_calculator')
-        if not isinstance(stab_cfg, dict): raise TypeError("'reward_setup.stability_calculator' debe ser dict.")
-        if 'enabled' not in stab_cfg or not isinstance(stab_cfg['enabled'], bool):
-            raise TypeError("'stability_calculator' falta 'enabled' o no es booleano.")
-        if stab_cfg['enabled'] and ('type' not in stab_cfg or not stab_cfg['type']):
-            raise ValueError("Si stability_calculator está habilitado, debe especificar un 'type'.")
-        # No validar params internos (ira_params, etc.), se hará en RewardFactory
+        # Nivel 'environment.reward_setup'
+        reward_setup = env_cfg.get('reward_setup', {})
+        if 'reward_strategy' not in reward_setup or not isinstance(reward_setup['reward_strategy'], dict):
+            raise KeyError("Section 'environment.reward_setup.reward_strategy' absent or not a dictionary.")
+        if 'calculation' not in reward_setup or not isinstance(reward_setup['calculation'], dict):
+            raise KeyError("Section 'environment.reward_setup.calculation' absent or not a dictionary.")
+        logger.debug("[ConfigLoader] 'environment.reward_setup' sub-sections validated.")
 
-        # 2.4.3: Validar 'learning_strategy' (estructura básica)
-        learn_strat_cfg = reward_setup.get('learning_strategy')
-        if not isinstance(learn_strat_cfg, dict): raise TypeError("'reward_setup.learning_strategy' debe ser dict.")
-        if 'type' not in learn_strat_cfg: raise KeyError("'learning_strategy' falta 'type'.")
-        learn_type = learn_strat_cfg['type']
+        # Validación 'reward_setup.calculation.stability_calculator'
+        calc_cfg = reward_setup.get('calculation', {})
+        stab_cfg = calc_cfg.get('stability_calculator', {}) # Puede ser None o no existir
+        stability_calculator_type_present = False
+        if stab_cfg is not None and isinstance(stab_cfg, dict):
+            stab_calc_type = stab_cfg.get('type')
+            if stab_calc_type and isinstance(stab_calc_type, str):
+                stability_calculator_type_present = True
+                # Validar que si 'type' está, los params correspondientes existan como dict
+                # Ejemplo: si type: 'ira_instantaneous', debe existir 'ira_instantaneous_params: {}'
+                expected_params_key = f"{stab_calc_type}_params"
+                if expected_params_key not in stab_cfg or not isinstance(stab_cfg[expected_params_key], dict):
+                    raise ValueError(f"Stability calculator type '{stab_calc_type}' is defined, but its parameters section 'stability_calculator.{expected_params_key}' is missing or not a dictionary.")
+            elif stab_calc_type is not None: # Existe 'type' pero no es string
+                 raise TypeError(f"'stability_calculator.type' must be a string, found: {type(stab_calc_type).__name__}")
+            # Si 'type' no está, se considera no configurado, lo cual es válido si no se usa.
+        elif stab_cfg is not None: # Existe 'stability_calculator' pero no es un dict
+            raise TypeError("'environment.reward_setup.calculation.stability_calculator' must be a dictionary or null.")
+        logger.debug(f"[ConfigLoader] 'stability_calculator' basic validation done. Type present: {stability_calculator_type_present}")
+
+        # Validación cruzada: 'shadow_baseline' requiere 'stability_calculator.type'
+        learn_strat_cfg = reward_setup.get('reward_strategy', {})
+        learn_type = learn_strat_cfg.get('type')
+        if learn_type == 'shadow_baseline' and not stability_calculator_type_present:
+            raise ValueError("Learning strategy 'shadow_baseline' requires 'stability_calculator.type' to be defined.")
         allowed_strategies = ['global', 'shadow_baseline', 'echo_baseline']
         if learn_type not in allowed_strategies:
-             raise ValueError(f"Tipo de 'learning_strategy' desconocido: '{learn_type}'. Permitidos: {allowed_strategies}")
+             raise ValueError(f"Unknown 'reward_strategy.type': '{learn_type}'. Allowed: {allowed_strategies}")
         if 'strategy_params' not in learn_strat_cfg or not isinstance(learn_strat_cfg['strategy_params'], dict):
-            raise TypeError("'learning_strategy' debe tener 'strategy_params' como diccionario.")
-        # No validar contenido de strategy_params (beta, etc.), se hará en DI/_create_reward_strategy
+            raise TypeError("'reward_strategy.strategy_params' must be a dictionary.")
+        if learn_type in learn_strat_cfg['strategy_params'] and not isinstance(learn_strat_cfg['strategy_params'][learn_type], dict):
+            raise TypeError(f"'reward_strategy.strategy_params.{learn_type}' must be a dictionary.")
+        logger.debug("[ConfigLoader] 'reward_strategy' and cross-validation with stability_calculator done.")
 
-        # 2.4.4: Validación Cruzada Shadow <-> Stability (se mantiene)
-        if learn_type == 'shadow_baseline' and not stab_cfg.get('enabled', False):
-            raise ValueError("Estrategia 'shadow_baseline' requiere 'stability_calculator.enabled' = true.")
+        # Estimación Q-Table (usando nuevas rutas)
+        agent_cfg_est = env_cfg.get('agent', {})
+        if agent_cfg_est.get('type') == 'pid_qlearning':
+            agent_params_est = agent_cfg_est.get('params', {})
+            state_cfg_q_est = agent_params_est.get('state_config', {})
+            if isinstance(state_cfg_q_est, dict):
+                enabled_bins = []
+                for var_name, var_cfg_est in state_cfg_q_est.items():
+                    if isinstance(var_cfg_est, dict) and var_cfg_est.get('enabled'):
+                        bins = var_cfg_est.get('bins')
+                        if isinstance(bins, int) and bins > 0:
+                            enabled_bins.append(bins)
+                if enabled_bins:
+                    total_states = np.prod(enabled_bins) if enabled_bins else 1
+                    num_actions = agent_params_est.get('num_actions', 3)
+                    if not isinstance(num_actions, int) or num_actions <= 0: num_actions = 3
+                    estimated_entries = total_states * num_actions
+                    threshold = 1_000_000 # Mismo umbral
+                    msg_q_table = f"[ConfigLoader] Q-table estimate: ~{estimated_entries:,.0f} entries/table ({len(enabled_bins)} vars: {enabled_bins} bins, {num_actions} acts)."
+                    if estimated_entries > threshold: logger.warning(f"{msg_q_table} Exceeds threshold ({threshold:,.0f}).")
+                    else: logger.info(f"{msg_q_table} (OK).")
+                else: logger.info("[ConfigLoader] Q-table estimate: No state variables enabled/valid for estimation.")
+            else: logger.warning("[ConfigLoader] Q-table estimate: 'agent.params.state_config' is not a dictionary.")
 
-        logger.info("Validación de estructura 'reward_setup' completada.")
-
-        # 2.5: Estimación Q-Table (se mantiene como informativo, no bloqueante)
-        agent_cfg = env_cfg.get('agent', {})
-        if agent_cfg.get('type') == 'pid_qlearning':
-             params = agent_cfg.get('params', {})
-             state_cfg_q = params.get('state_config', {})
-             # ... (lógica de estimación sin cambios, solo loguea WARNING/INFO) ...
-             if isinstance(state_cfg_q, dict):
-                 enabled_bins = []
-                 for var_name, var_cfg in state_cfg_q.items():
-                     if isinstance(var_cfg, dict) and var_cfg.get('enabled'):
-                         bins = var_cfg.get('bins')
-                         if isinstance(bins, int) and bins > 0:
-                             enabled_bins.append(bins)
-                 if enabled_bins:
-                     total_states = np.prod(enabled_bins) if enabled_bins else 1 # Usar np.prod
-                     num_actions = params.get('num_actions', 3)
-                     if not isinstance(num_actions, int) or num_actions <= 0: num_actions = 3
-                     estimated_entries = total_states * num_actions
-                     threshold = 1_000_000
-                     if estimated_entries > threshold:
-                         logger.warning(
-                             f"Estimación Q-table: ≈{estimated_entries:,.0f} entradas/tabla "
-                             f"({len(enabled_bins)} vars: {enabled_bins} bins, {num_actions} acts). "
-                             f"Excede umbral ({threshold:,.0f}). Considerar reducir bins/vars."
-                         )
-                     else:
-                         logger.info(f"Estimación Q-table: ≈{estimated_entries:,.0f} entradas/tabla (OK).")
-                 else:
-                     logger.info("Estimación Q-table: No hay variables de estado habilitadas/válidas.")
-             else:
-                 logger.warning("Estimación Q-table: 'agent.params.state_config' no es diccionario.")
-
-
-    # 2.6: Simplificar captura de errores
     except (yaml.YAMLError, FileNotFoundError, TypeError, ValueError, KeyError) as e:
-        logger.error(f"Error crítico cargando/validando '{config_filename}': {e}", exc_info=True)
-        return None, None, {} # Fail-Fast
-    except Exception as e: # Captura genérica para errores inesperados
-        logger.error(f"Error inesperado cargando/validando '{config_filename}': {e}", exc_info=True)
-        return None, None, {} # Fail-Fast
+        logger.error(f"[ConfigLoader] CRITICAL error loading/validating '{config_filename}': {e}", exc_info=True)
+        return None, None, {}
+    except Exception as e:
+        logger.error(f"[ConfigLoader] UNEXPECTED error loading/validating '{config_filename}': {e}", exc_info=True)
+        return None, None, {}
 
-    # --- [3] Extraer logging_config (asegurarse que es un dict o {}) ---
-    # 3.1: Extraer sección logging, default a {} si no existe o no es dict
+    # --- [3] Extraer logging_config ---
     logging_config = main_config.get('logging', {})
     if not isinstance(logging_config, dict):
-        logger.warning("'logging' section in config is not a dictionary or null. Using default {}")
+        logger.warning("[ConfigLoader] 'logging' section not a dictionary or null. Using default {}.")
         logging_config = {}
 
-    # --- [4] Carga Visualización Config si aplica --- (Revisado) ---
-    # 4.1: Extraer sección visualization de main_config
-    vis_settings = main_config.get('visualization', {}) # Default a dict vacío si falta la sección
-    if vis_settings is None: # Permitir 'visualization: null' en YAML
-        vis_settings = {} # Tratar null como vacío
+    # --- [4] Carga Visualización Config ---
+    vis_settings = main_config.get('visualization', {})
+    if vis_settings is None: vis_settings = {} # Tratar null como dict vacío
     if not isinstance(vis_settings, dict):
-        logger.warning("'visualization' section in config is not a dictionary or null. Disabling visualization.")
-        vis_settings = {'enabled': False} # Forzar deshabilitado si no es dict
+        logger.warning("[ConfigLoader] 'visualization' section not a dictionary or null. Disabling visualization.")
+        vis_settings = {'enabled': False}
 
     vis_enabled = vis_settings.get('enabled', False)
-    vis_config = None # Inicializar vis_config como None
-
     if vis_enabled:
         vis_file_rel = vis_settings.get('config_file')
         if not vis_file_rel or not isinstance(vis_file_rel, str):
-            # Loguear advertencia pero NO deshabilitar aquí, permitir fallback
-            logger.warning("Visualización habilitada pero 'config_file' falta o es inválido en config principal.")
-            # Podríamos intentar cargar un archivo por defecto? O simplemente fallará más adelante.
-            # Por ahora, vis_config sigue None.
+            logger.warning("[ConfigLoader] Visualization enabled but 'config_file' missing/invalid. Vis_config will be None.")
         else:
-            # Construir ruta absoluta al archivo de visualización
             vis_path_abs = os.path.join(script_dir, vis_file_rel)
-            logger.info(f"Intentando cargar config visualización desde: {vis_path_abs}")
-
+            logger.info(f"[ConfigLoader] Attempting to load visualization config from: {vis_path_abs}")
             if not os.path.exists(vis_path_abs):
-                logger.error(f"Archivo config visualización '{vis_path_abs}' NO encontrado. Visualización no funcionará.")
-                # vis_config sigue None
+                logger.error(f"[ConfigLoader] Visualization config file '{vis_path_abs}' NOT found. Vis_config will be None.")
             else:
                 try:
                     with open(vis_path_abs, 'r', encoding='utf-8') as vf:
                         vis_config_loaded = yaml.safe_load(vf)
-                        # --- Validación Clave: Asegurar que carga un dict y TIENE 'plots' ---
                         if not isinstance(vis_config_loaded, dict):
-                            logger.error(f"Contenido de '{vis_path_abs}' no es un diccionario YAML. Visualización deshabilitada.")
-                            # vis_config sigue None
+                            logger.error(f"[ConfigLoader] Content of '{vis_path_abs}' is not a YAML dictionary. Vis_config set to None.")
                         elif 'plots' not in vis_config_loaded or not isinstance(vis_config_loaded['plots'], list):
-                            logger.error(f"Archivo config visualización '{vis_path_abs}' cargado, pero falta la clave 'plots' o no es una lista. Visualización deshabilitada.")
-                            # vis_config sigue None
+                            logger.error(f"[ConfigLoader] Vis config '{vis_path_abs}' loaded, but 'plots' key missing or not a list. Vis_config set to None.")
                         else:
-                            # ¡Éxito! Asignar el diccionario cargado
-                            vis_config = vis_config_loaded
-                            logger.info(f"Config visualización cargada y validada (contiene 'plots') desde: {vis_path_abs}")
-
+                            vis_config = vis_config_loaded # ¡Éxito!
+                            logger.info(f"[ConfigLoader] Visualization config loaded and validated from: {vis_path_abs}")
                 except (yaml.YAMLError, OSError) as e:
-                    logger.error(f"Error cargando/parseando '{vis_path_abs}': {e}. Visualización deshabilitada.")
-                    # vis_config sigue None
-                except Exception as e:
-                    logger.error(f"Error inesperado cargando vis config '{vis_path_abs}': {e}", exc_info=True)
-                    # vis_config sigue None
+                    logger.error(f"[ConfigLoader] Error loading/parsing vis_config '{vis_path_abs}': {e}. Vis_config set to None.")
+                except Exception as e_vis: # Captura genérica para errores inesperados
+                    logger.error(f"[ConfigLoader] UNEXPECTED error loading vis_config '{vis_path_abs}': {e_vis}", exc_info=True)
     else:
-        logger.info("Visualización deshabilitada explícitamente ('enabled: false') en la config principal.")
-        # vis_config sigue None
+        logger.info("[ConfigLoader] Visualization explicitly disabled in main config.")
 
-    # Devolver la tupla (main_config, vis_config (puede ser None), logging_config)
     return main_config, vis_config, logging_config

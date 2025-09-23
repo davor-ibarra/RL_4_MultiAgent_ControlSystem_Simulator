@@ -39,19 +39,9 @@ class ExtendedMetricsCollector(MetricsCollector): # Implementar Interfaz
             value_to_log = np.nan
         else:
             value_to_log = metric_value
-
+        # 2.3: Log data for each metric
         #logger.debug(f"Log Metric: {metric_name} = {value_to_log}") # Log muy verboso
-
-        # 2.3: Simplificar try-except, defaultdict maneja claves nuevas
-        try:
-            self.metrics[metric_name].append(value_to_log)
-        except MemoryError: # Capturar error específico si la lista crece demasiado
-             logger.error(f"MemoryError al añadir métrica '{metric_name}'. Demasiados datos?", exc_info=True)
-             # Podría implementarse lógica para truncar o parar aquí
-             raise # Relanzar MemoryError
-        except Exception as e:
-             # Loguear otros errores inesperados, pero intentar continuar
-             logger.error(f"(Inst {self._instance_id}) Error inesperado añadiendo métrica '{metric_name}': {e}", exc_info=True)
+        self.metrics[metric_name].append(value_to_log)
 
     def get_metrics(self) -> Dict[str, List[Any]]:
         """Devuelve una copia de las métricas recolectadas como dict estándar."""
@@ -63,63 +53,39 @@ class ExtendedMetricsCollector(MetricsCollector): # Implementar Interfaz
         # logger.debug(f"(Inst {self._instance_id}) Resetting metrics for episode {episode_id}")
         self.metrics.clear()
         self.episode_id = episode_id
-        # Añadir episode_id al dict al resetear? No, SimulationManager lo añade al final.
 
-    # --- Métodos específicos para loguear datos del agente/entrenamiento ---
-    # Estos son métodos de conveniencia, no parte de la interfaz MetricsCollector.
+    # --- MÉTODOS PRIVADOS --- (para loguear datos del agente/entrenamiento)
     # Usan la interfaz RLAgent para obtener los datos.
 
     def log_q_values(self, agent: 'RLAgent', agent_state_dict: Dict):
         """Registra los Q-values máximos para el estado actual."""
         # 2.5: Usar interfaz RLAgent.get_q_values_for_state
-        try:
-            q_values_per_gain = agent.get_q_values_for_state(agent_state_dict)
-            for gain, q_vals_array in q_values_per_gain.items():
-                # nanmax devuelve NaN si todo el array es NaN
-                max_q = np.nanmax(q_vals_array) if isinstance(q_vals_array, np.ndarray) else np.nan
-                self.log(f'q_value_max_{gain}', max_q)
-        except AttributeError:
-             logger.warning(f"Agente {type(agent).__name__} no implementa get_q_values_for_state. No se loguean Q-values.")
-             # Loguear NaN por consistencia si el método no existe
-             for gain in ['kp', 'ki', 'kd']: self.log(f'q_value_max_{gain}', np.nan)
-        except Exception as e:
-            logger.warning(f"Error logueando Q-values: {e}", exc_info=True)
-            for gain in ['kp', 'ki', 'kd']: self.log(f'q_value_max_{gain}', np.nan)
+        q_values_per_gain = agent.get_q_values_for_state(agent_state_dict)
+        for gain, q_vals_array in q_values_per_gain.items():
+            # nanmax devuelve NaN si todo el array es NaN
+            max_q = np.nanmax(q_vals_array) if isinstance(q_vals_array, np.ndarray) else np.nan
+            self.log(f'q_value_max_{gain}', max_q)
 
 
     def log_q_visit_counts(self, agent: 'RLAgent', agent_state_dict: Dict):
         """Registra la suma de cuentas de visita N(s,a) para el estado actual."""
         # 2.6: Usar interfaz RLAgent.get_visit_counts_for_state
-        try:
-            visit_counts_per_gain = agent.get_visit_counts_for_state(agent_state_dict)
-            for gain, visits_array in visit_counts_per_gain.items():
-                total_visits = np.nan # Default a NaN
-                if isinstance(visits_array, np.ndarray) and visits_array.size > 0:
-                    # Sumar solo visitas válidas (>= 0), nansum maneja NaN si los hubiera
-                    valid_visits = visits_array[visits_array >= 0]
-                    total_visits = np.nansum(valid_visits)
-                self.log(f'q_visit_count_state_{gain}', total_visits)
-        except AttributeError:
-            logger.warning(f"Agente {type(agent).__name__} no implementa get_visit_counts_for_state. No se loguean Visit Counts.")
-            for gain in ['kp', 'ki', 'kd']: self.log(f'q_visit_count_state_{gain}', np.nan)
-        except Exception as e:
-            logger.warning(f"Error logueando Visit Counts: {e}", exc_info=True)
-            for gain in ['kp', 'ki', 'kd']: self.log(f'q_visit_count_state_{gain}', np.nan)
+        visit_counts_per_gain = agent.get_visit_counts_for_state(agent_state_dict)
+        for gain, visits_array in visit_counts_per_gain.items():
+            total_visits = np.nan # Default a NaN
+            if isinstance(visits_array, np.ndarray) and visits_array.size > 0:
+                # Sumar solo visitas válidas (>= 0), nansum maneja NaN si los hubiera
+                valid_visits = visits_array[visits_array >= 0]
+                total_visits = np.nansum(valid_visits)
+            self.log(f'q_visit_count_state_{gain}', total_visits)
 
     def log_baselines(self, agent: 'RLAgent', agent_state_dict: Dict):
         """Registra el valor del baseline B(s) para el estado actual."""
         # 2.7: Usar interfaz RLAgent.get_baseline_value_for_state
-        try:
-            baselines_per_gain = agent.get_baseline_value_for_state(agent_state_dict)
-            for gain, baseline_value in baselines_per_gain.items():
-                # El método del agente ya debería devolver float o NaN
-                self.log(f'baseline_value_{gain}', baseline_value)
-        except AttributeError:
-            logger.warning(f"Agente {type(agent).__name__} no implementa get_baseline_value_for_state. No se loguean Baselines.")
-            for gain in ['kp', 'ki', 'kd']: self.log(f'baseline_value_{gain}', np.nan)
-        except Exception as e:
-            logger.warning(f"Error logueando Baselines: {e}", exc_info=True)
-            for gain in ['kp', 'ki', 'kd']: self.log(f'baseline_value_{gain}', np.nan)
+        baselines_per_gain = agent.get_baseline_value_for_state(agent_state_dict)
+        for gain, baseline_value in baselines_per_gain.items():
+            # El método del agente ya debería devolver float o NaN
+            self.log(f'baseline_value_{gain}', baseline_value)
 
     def log_virtual_rewards(self, virtual_rewards_dict: Optional[Dict[str, float]]):
         """Registra las recompensas virtuales/diferenciales (Echo Baseline)."""
@@ -140,9 +106,9 @@ class ExtendedMetricsCollector(MetricsCollector): # Implementar Interfaz
                 # El método del agente ya devuelve float o NaN
                 td_error = td_errors_dict.get(gain, np.nan)
                 self.log(f'td_error_{gain}', td_error)
-        else: # Log NaN si no es dict
-            logger.warning(f"td_errors_dict no es un diccionario ({type(td_errors_dict)}). Logueando NaNs.")
-            for gain in gains_to_log: self.log(f'td_error_{gain}', np.nan)
+        #else: # Log NaN si no es dict
+        #    logger.warning(f"td_errors_dict no es un diccionario ({type(td_errors_dict)}). Logueando NaNs.")
+        #    for gain in gains_to_log: self.log(f'td_error_{gain}', np.nan)
 
     def log_adaptive_stats(self, stats_dict: Dict[str, Dict[str, float]]):
         """Registra las estadísticas adaptativas (mu, sigma) del stability calculator."""
@@ -163,3 +129,16 @@ class ExtendedMetricsCollector(MetricsCollector): # Implementar Interfaz
                 sigma = var_stats.get('sigma', np.nan) # Default a NaN si falta 'sigma'
             self.log(f'adaptive_mu_{var_name}', mu) # log maneja NaN
             self.log(f'adaptive_sigma_{var_name}', sigma) # log maneja NaN
+    
+    def log_early_termination_metrics(self, agent: 'RLAgent'):
+        agent_vars_to_log = []
+        agent_vars_to_log = agent.get_agent_defining_vars()
+        et_metrics_per_var = agent.get_last_early_termination_metrics()
+        for var_name in agent_vars_to_log:
+            metrics_for_this_var = et_metrics_per_var.get(var_name, {}) # Obtener el sub-diccionario
+            self.log(f'patience_M_{var_name}', metrics_for_this_var.get('patience_M', np.nan))
+            self.log(f'no_improvement_counter_c_hat_{var_name}', metrics_for_this_var.get('c_hat', np.nan))
+            self.log(f'penalty_beta_{var_name}', metrics_for_this_var.get('beta', np.nan))
+            self.log(f'improvement_metric_value_{var_name}', metrics_for_this_var.get('current_metric', np.nan))
+            self.log(f'last_improvement_metric_value_{var_name}', metrics_for_this_var.get('last_metric', np.nan))
+            self.log(f'requested_early_termination_{var_name}', bool(metrics_for_this_var.get('requested_et', False)))

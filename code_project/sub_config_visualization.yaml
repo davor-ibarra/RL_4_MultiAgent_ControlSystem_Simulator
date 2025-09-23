@@ -158,7 +158,7 @@ plots:
       clabel: Frequency # Colorbar label
       clabel_fontsize: 14
       cmin: null
-      cmax: 10000
+      cmax: null #10000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
       bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
@@ -230,7 +230,7 @@ plots:
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
-      cmax: 5000
+      cmax: null #5000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
       bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
@@ -266,7 +266,7 @@ plots:
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
-      cmax: 1000
+      cmax: null #1000
       cmap: hot
       bins: 1000
       log_scale: false
@@ -302,7 +302,7 @@ plots:
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
-      cmax: 5000
+      cmax: null #5000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
       bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
@@ -374,7 +374,7 @@ plots:
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
-      cmax: 5000
+      cmax: null #5000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
       bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
@@ -410,7 +410,7 @@ plots:
       clabel: Frequency
       clabel_fontsize: 14
       cmin: null
-      cmax: 10000
+      cmax: null #10000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
       bins: 1000 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
