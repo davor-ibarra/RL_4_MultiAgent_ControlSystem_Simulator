@@ -1,0 +1,86 @@
+data_save:
+  config:
+    enabled_json_history: true
+    enabled_summary: true
+    summary_first_cols: [
+      'episode', 
+      'episode_wall_time_sec', 
+      'epsilon', 
+      'learning_rate', 
+      'gain_delta', 
+      'total_agent_decisions', 
+      'time_duration', 
+      'termination_reason', 
+      'total_reward', 
+      'performance', 
+      'avg_stability_score',
+      'final_kp', 
+      'final_ki', 
+      'final_kd'
+      ]
+    enabled_summary_stats: true
+    statistics_metrics: ['_mean', 'sigma', '_min', 'p25', 'p50', 'p75', '_max']
+  components:
+    env:
+      - {params: 'episode_id', freq: ['on_step'], out: ['json_history', 'summary'], summary_stats: false, alias: 'episode'}
+      - {params: 'time', freq: ['on_step'], out: ['json_history'], summary_stats: false}
+      - {params: 'time', freq: ['on_final'], out: ['summary'], summary_stats: false, alias: 'time_duration'}
+      - {params: 'level', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'level_rate', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'Q_in', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'Q_out', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+    controller:
+      #- {params: 'gain_delta', freq: ['on_final'], out: ['summary'], summary_stats: false}
+      - {params: 'kp', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: true}
+      - {params: 'ki', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: true}
+      - {params: 'kd', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: true}
+      - {params: 'kp', freq: ['on_final'], out: ['summary'], summary_stats: false, alias: 'final_kp'}
+      - {params: 'ki', freq: ['on_final'], out: ['summary'], summary_stats: false, alias: 'final_ki'}
+      - {params: 'kd', freq: ['on_final'], out: ['summary'], summary_stats: false, alias: 'final_kd'}
+      - {params: 'control_action', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'limited_control_action', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'normalize_control_action', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'current_error', freq: ['on_step'], out: ['json_history'], summary_stats: true, alias: 'error'}
+      - {params: 'current_accumulated_integral_error', freq: ['on_step'], out: ['json_history'], summary_stats: true, alias: 'integral_error'}
+      - {params: 'current_derivative_error', freq: ['on_step'], out: ['json_history'], summary_stats: true, alias: 'derivative_error'}
+      - {params: 'last_proportional_term', freq: ['on_step'], out: ['json_history'], summary_stats: true, alias: 'p_term'}
+      - {params: 'last_integral_term', freq: ['on_step'], out: ['json_history'], summary_stats: true, alias: 'i_term'}
+      - {params: 'last_derivative_term', freq: ['on_step'], out: ['json_history'], summary_stats: true, alias: 'd_term'}
+    agent:
+      - {params: 'action_kp', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: false}
+      - {params: 'action_ki', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: false}
+      - {params: 'action_kd', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: false}
+      #- {params: 'learn_select_duration_ms', freq: ['on_decision_interval'], out: ['json_history', 'summary'], summary_stats: false}
+      - {params: 'interval_reward', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: true}
+      #- {params: 'r_learn_kp', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: true}
+      #- {params: 'r_learn_ki', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: true}
+      #- {params: 'r_learn_kd', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: true}
+      - {params: 'learning_rate', freq: ['on_final'], out: ['summary'], summary_stats: false}
+      - {params: 'epsilon', freq: ['on_final'], out: ['summary'], summary_stats: false}
+      #- {params: 'td_error_kp', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: false}
+      #- {params: 'td_error_ki', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: false}
+      #- {params: 'td_error_kd', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: false}
+      #- {params: 'q_value_max_kp', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: false}
+      #- {params: 'q_value_max_ki', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: false}
+      #- {params: 'q_value_max_kd', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: false}
+    stability:
+      - {params: 'stability_score', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'avg_stability_score_interval', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: true}
+    reward_calc:
+      - {params: 'reward', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'reward_base_level', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      #- {params: 'reward_level_rate', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'reward_dp_control_action', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      #- {params: 'reward_di_lineal_level_rate', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'reward_di_tanh_level_rate', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'target_level_rate', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'fixed_penalty', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'reward_penalty_delta_control_action', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      # {params: 'quadratic_penalty_reward', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'goal_bonus', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      #- {params: 'bandwidth_per_step_bonus', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+    sim_manager:
+      - {params: 'id_agent_decision', freq: ['on_step'], out: ['json_history']} # *Dejar como 'on_step' para registrar en cada paso
+      - {params: 'total_agent_decisions', freq: ['on_final'], out: ['summary']}
+      - {params: 'episode_wall_time_sec', freq: ['on_final'], out: ['summary']}
+      - {params: 'termination_reason', freq: ['on_final'], out: ['json_history', 'summary']}

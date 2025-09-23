@@ -103,6 +103,8 @@ class VisualizationManager:
 
         # 2.11: Generar datos de heatmap PRIMERO
         self._generate_heatmap_data_if_needed()
+        # Forzar recolección de basura después del paso intensivo de heatmaps
+        gc.collect()
 
         # 2.12: Iterar sobre TODAS las configuraciones de plots para generar los gráficos individuales
         num_generated = 0
@@ -143,6 +145,7 @@ class VisualizationManager:
                 self.logger.error(f"[VisualizationManager_run] Error generando plot '{plot_name}': Datos o configuración inválidos: {ve}")
             except Exception as e:
                 self.logger.error(f"[VisualizationManager_run] Error inesperado generando plot '{plot_name}': {e}", exc_info=True)
+            gc.collect()
 
         self.logger.info(f"Generación de visualizaciones finalizada.")
         self.logger.info(f"  - Intentados/Generados: {num_generated}")

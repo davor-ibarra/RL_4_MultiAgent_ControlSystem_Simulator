@@ -465,3 +465,7 @@ class HeatmapGenerator:
                     except Exception as e_close_on_error: self._internal_logger.error(f"[HeatmapGenerator:generate] Error closing ExcelWriter after a write error: {e_close_on_error}") # 'e_close_on_error'
         else:
             self._internal_logger.warning("[HeatmapGenerator:generate] No valid heatmap data sheets were generated. Excel file will not be created.")
+        
+        del all_detailed_data_df
+        gc.collect()
+        self._internal_logger.info("[HeatmapGenerator:generate] Freed detailed data from memory after generating heatmap data.")

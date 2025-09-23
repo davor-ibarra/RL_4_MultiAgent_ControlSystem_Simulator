@@ -27,24 +27,24 @@ class RewardStrategy(ABC):
     def compute_reward_for_learning(
         self,
         # --- Context for the update ---
-        gain: str, # La "ganancia" o variable base del agente/Q-table que se está actualizando (e.g., 'kp', 'ki', 'kd')
-        agent: 'RLAgent', # La instancia del agente que está aprendiendo
-        controller: 'Controller', # La instancia del controlador actual
+        gain_id: str, # La "ganancia" o variable base del agente/Q-table que se está actualizando (e.g., 'kp', 'ki', 'kd')
+        agent_instance: 'RLAgent', # La instancia del agente que está aprendiendo
+        controllers_dict: Dict[str, 'Controller'], # La instancia del controlador actual
         # --- State Information ---
         current_agent_state_dict: Dict[str, Any], # Estado S (discretizado o continuo según el agente) en formato de diccionario
         current_state_indices: tuple,             # Índices discretos para S (para la tabla Q de 'gain') si aplica
         # --- Action Information ---
-        actions_dict: Dict[str, int],             # Acciones A tomadas para todas las gains/agentes en el intervalo
-        action_taken_idx: int,                    # Acción (e.g., 0,1,2) para la 'gain'/agente específico que se está actualizando
+        actions_taken_map: Dict[str, int],             # Acciones A tomadas para todas las gains/agentes en el intervalo
+        action_idx_for_gain: int,                    # Acción (e.g., 0,1,2) para la 'gain'/agente específico que se está actualizando
         # --- Raw Reward/Stability Information from the interval ---
         # 'interval_reward' es la recompensa acumulada del entorno real durante el intervalo.
         # 'avg_stability_score' es el promedio de w_stab (stability_score) del entorno real durante el intervalo.
-        interval_reward: float,                   # R_real: Recompensa real acumulada
-        avg_stability_score: float,               # w_stab promedio del intervalo real (stability_score)
+        real_interval_reward: float,                   # R_real: Recompensa real acumulada
+        avg_interval_stability_score: float,               # w_stab promedio del intervalo real (stability_score)
         # --- Pre-calculated Differential Rewards (for Echo Baseline like strategies) ---
         # 'reward_dict' puede contener recompensas diferenciales precalculadas, e.g., {'kp': R_diff_kp, ...}
         # o ser None si la estrategia no las necesita o no fueron calculadas.
-        reward_dict: Optional[Dict[str, float]],
+        differential_rewards_map: Optional[Dict[str, float]],
         # --- Optional Extra Arguments ---
         **kwargs: Any # Para futura extensibilidad sin romper la interfaz
     ) -> float:
@@ -62,7 +62,7 @@ class RewardStrategy(ABC):
         Args:
             gain (str): Identificador de la ganancia o sub-agente para el cual se calcula R_learn.
             agent (RLAgent): La instancia del agente.
-            controller (Controller): La instancia del controlador.
+            controllers_dict (Controller): Diccionario con las instancias de controladores.
             current_agent_state_dict (Dict[str, Any]): Estado S al inicio del intervalo.
             current_state_indices (tuple): Índices del estado S para la tabla de 'gain'.
             actions_dict (Dict[str, int]): Acciones tomadas para todas las gains.

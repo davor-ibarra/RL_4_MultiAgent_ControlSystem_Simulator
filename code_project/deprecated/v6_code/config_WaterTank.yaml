@@ -1,0 +1,198 @@
+# ========================================
+# Environment Configuration
+# ========================================
+environment:
+  type: water_tank_environment
+  module_path: components.environments.water_tank_environment
+  class_name: WaterTankEnvironment
+  # Initial conditions for Episodes
+  initial_conditions:
+    x0: { 
+      level: 1.0,                      # Initial water level (m)
+      } 
+  # Simulation Manager
+  simulation:
+    max_episodes: 5000                 # Maximum number of episodes to run
+    episode_duration_sec: 5.0          # Total simulation time per episode (s)
+    dt_sec: 0.001                       # Simulation time step (s)
+    agent_decision_period_sec: 0.02     # Time between agent decisions (s) - must be multiple of dt_sec
+    # Boundary constraint
+    enable_level_limit: true
+    # Stabilization Criteria
+    stabilization_criteria:
+      level_threshold: 0.01           # Stabilized if |level - setpoint| < 0.01 [m]
+      level_rate_threshold: 0.005     # Stabilized if |dh/dt| < 0.005 [m/s]
+  # --- Dynamic System ---
+  system:
+    type: water_tank_system
+    module_path: components.systems.water_tank_system_v1_OneValveControl
+    class_name: WaterTankSystem
+    params:
+      area_m2: 0.19625                 # 0.19625 -> radius = 0.25 [m]  |  
+      inflow_coeff_Cd: 0.1
+      outflow_coeff_Cd: 0.1
+      outflow_opening_u: 0.3           # Fixed 30% opening
+      supply_pressure_pa: 15000.0      # Approx 2m water column pressure
+      fluid_density_kg_m3: 1000.0
+      g_accel: 9.81
+      max_level_m: 2.0
+  # --- Controller ---
+  controller:
+    type: pid
+    module_path: components.controllers.pid_controller
+    class_name: PIDController
+    params:
+      kp: 1.0                        # Initial Proportional gain
+      ki: 1.0                        # Initial Integral gain
+      kd: 1.0                        # Initial Derivative gain
+      name_objective_var: 'level'
+      setpoint: 1.5                   # Target water level of 1.5 [m]
+      actuator_limits: [0.0, 1.0]     # Limitar valor de salida del PID
+      error_is_setpoint_minus_pv: true # Para sistemas de acción inversa como el tanque
+      anti_windup:
+        enabled: false
+        use_back_calculation_formula: false    # I(t) = (Kp(t-1)*error(t-1) + Ki(t-1)*I(t-1)*dt - Kp(t)*error(t))/Ki(t)
+    # PID Adaptation Specifics
+    pid_adaptation:
+      enabled: true              # Requiere REPARACIÓN IMPLEMENTACIÓN
+      gain_delta: 0.25
+      per_gain_delta: false
+      # params:                                             # Si per_gain_delta es true, gain_delta sería un dict aquí
+        # gain_delta: {kp: 5.0, ki: 1.0, kd: 0.5}           # Ejemplo si per_gain_delta=true
+      reset_policy_on_episode_end: full_params_and_state    # internal_state_only, full_params_and_state
+  # --- Agent ---
+  agent:
+    type: pid_qlearning
+    module_path: components.agents.pid_qlearning_agent
+    class_name: PIDQLearningAgent
+    params:
+      num_actions: 3             # Number of actions per gain: 0=decrease, 1=maintain, 2=increase
+      discount_factor: 0.98      # Q-learning discount factor (gamma)
+      # Epsilon (Exploration Rate) Settings
+      epsilon: 1.0               # Initial exploration rate
+      epsilon_decay: 0.99942452  # Decay factor per episode | 0.99942452 (4000) | 0.9997122 (8000)| 0.999846506108527 (15000)
+      epsilon_min: 0.1           # Minimum exploration rate
+      use_epsilon_decay: true    # Enable/disable epsilon decay
+      # Learning Rate (Alpha) Settings
+      learning_rate: 1.0         # Initial learning rate for Q-updates
+      learning_rate_decay: 0.99885 # Decay factor per episode | 0.99885 (4000) | 0.999425 (8000) | 0.999693035777428 (15000)
+      learning_rate_min: 0.01    # Minimum learning rate
+      use_learning_rate_decay: true # Enable/disable learning rate decay
+      # Agents and State Discretization Configuration
+      state_config:
+        # Base State Variables
+        kp:                      {enabled_agent: true, min: 0.0, max: 10.0, bins: 41, state_vars: []}
+        ki:                      {enabled_agent: true, min: 0.0, max: 10.0, bins: 41, state_vars: []}
+        kd:                      {enabled_agent: true, min: 0.0, max: 10.0, bins: 41, state_vars: []}
+        level:                   {enabled_agent: false, min: 0.0, max: 1.0, bins: 11, state_vars: []}
+        level_rate:              {enabled_agent: false, min: -0.5, max: 0.5, bins: 11, state_vars: []}
+      # Patience Agent Settings
+      early_stopping_criteria:
+        enabled: false
+        improvement_metric_source: interval_cumulative_reward # "interval_avg_stability" o "interval_cumulative_reward"
+        patience_type: "adaptive" # "fixed" o "adaptive"
+        initial_patience_kp: 250
+        initial_patience_ki: 250
+        initial_patience_kd: 250
+        min_patience: 25          
+        max_patience: 450
+        patience_adjustment_rate: 10
+        use_stage_learning_for_base_patience: false
+        penalty_reward_params:
+          enabled: false
+          penalty_beta_init_kp: 0.9
+          penalty_beta_init_ki: 0.9
+          penalty_beta_init_kd: 0.9
+  # --- Reward Configuration ---
+  reward_setup:
+    # --- 1. Penalty and Bonus Base Configuration ---
+    penalty_approach:
+      penalty_instantaneous_reward:
+        enabled: true
+        method: quadratic              # lineal | quadratic
+        type: fixed
+        penalty_lineal_params:
+          time: 500.0                 # dt = 0.001
+        penalty_quadratic_params:
+          time: 0.4                   # 0.79984 -> 10000 | 0.39992 -> 5000 | 0.079984 -> 1000
+    bonus_approach:
+      goal_bonus_reward:
+        enabled: false
+        static_value: 500.0            # Sólo si type = static
+        type: "static"                  # "static" | "decay"
+        decay_type: "none"              # "exponential" | "linear" | "none"  (sólo si type=decay)
+        decay_time_constant: 1.0        # tau [s], sólo para decay exponencial o lineal
+        base_value: 5000.0              # Valor máximo del bono de meta
+        min_value: 1000.0               # Bono mínimo tras decaer
+      # --- Bono de aproximación (zona ampliada) ---
+      bandwidth_bonus:
+        enabled: false
+        per_step_bonus: 5.0           # Bono por cada dt dentro de la zona ampliada
+        max_total_bonus: 10000        # Tope máximo acumulado por episodio (None: ilimitado)
+        ranges: {
+              level: [1.25, 1.75],
+              }
+        
+    # --- 2. Agent Learning Strategy Configuration ---
+    reward_strategy:
+      type: weighted_sum_features     # weighted_sum_features, shadow_baseline_delta, echo_virtual_baseline_delta
+      strategy_params:
+        weighted_sum_features: {}
+        echo_virtual_baseline_delta: {}
+        shadow_baseline_delta:         
+          beta: 0.2
+          baseline_init_value: 0.0
+    # --- 3. Reward Calculation Configuration ---
+    calculation:
+      method: weighted_exponential    # weighted_exponential o stability_measure_based
+      weighted_exponential_params:
+        features:
+          level:                    {weight: 1.0, scaled: 1.0, setpoint: 1.5}
+          level_rate:               {weight: 0.5, scaled: 0.5}
+          control_action:           {weight: 0.5, scaled: 5.0}
+      # --- 4. Stability Score (w_stab) Configuration ---
+      stability_measure:
+        type: exp_decay_metric       # exp_decay_metric, ira_zscore_metric
+        # simple_exponential_params -> exp_decay_metric_params
+        exp_decay_metric_params:
+          features:
+              level:                {weight: 1.0, scaled: 1.0, setpoint: 1.5}
+              level_rate:           {weight: 0.5, scaled: 0.5}
+        # ira_instantaneous_params -> ira_zscore_metric_params
+        ira_zscore_metric_params: 
+          lambda_factor: 1.0
+          epsilon_zscore_denominator: 1.0e-6
+          adaptive_stats:
+            enabled: false                ## REVISAR, hay log.info pero no hay data en SUMMARY
+            min_episode: 3000
+            min_sigma: 1.0e-4
+          features:
+            level:                  {weight: 0.1, mu: 0.0, sigma: 0.05}
+            level_rate:             {weight: 0.1, mu: 0.0, sigma: 0.05}
+  # --- End of Reward Configuration ---
+
+# ========================================
+# Data Handling Configuration
+# ========================================
+data_handling:
+  output_root: 'results_history_WaterTank' # Base folder for saving results
+  episodes_per_dataset_chunk: 250
+  save_agent_state: true
+  agent_state_save_frequency: 2000
+  config_file: sub_config_data_save_WaterTank.yaml
+
+# ========================================
+# Visualization Settings
+# ========================================
+visualization:
+  enabled: true
+  config_file: sub_config_visualization_WaterTank.yaml
+
+# ========================================
+# Logging Configuration
+# ========================================
+logging:
+  log_to_file: false
+  filename: log_simulation_run.log
+  levels: [DEBUG, INFO, WARNING, ERROR, CRITICAL]
+  log_save_frequency: 100

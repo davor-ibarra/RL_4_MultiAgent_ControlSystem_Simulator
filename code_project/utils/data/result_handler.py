@@ -43,8 +43,7 @@ class ResultHandler:
         
         num_eps_in_batch = len(episode_data_list_batch)
         first_ep_idx = max(0, last_episode_idx_in_batch - num_eps_in_batch + 1)
-        filename_rng_str = f"{first_ep_idx}_to_{last_episode_idx_in_batch}"
-        batch_filename = f"simulation_data_ep_{filename_rng_str}.json"
+        batch_filename = f"simulation_data_ep_{first_ep_idx}_to_{last_episode_idx_in_batch}.json"
         full_filepath = os.path.join(output_dir_path_batch, batch_filename)
         
         # self._logger.info(f"[ResultHandler:SaveBatch] Saving batch for episodes {filename_rng_str} to {batch_filename}")
@@ -128,10 +127,6 @@ class ResultHandler:
     def save_summary_table(self, 
                            summary_data_list: List[Dict], 
                            output_dir_summary_table: str,
-                           # summary_directives ya no es necesario si se asume que summarize_episode ya filtró
-                           # O, si queremos reordenar/filtrar columnas aquí basado en config, se necesitaría.
-                           # Por simpleza, asumimos que summary_data_list ya tiene las columnas deseadas.
-                           # Si se necesita filtrado/reordenado aquí, pasar summary_directives.
                           ):
         """Guarda la lista de resúmenes de episodios a un archivo Excel."""
         if not summary_data_list: 
@@ -162,12 +157,9 @@ class ResultHandler:
         self._logger.info(f"[ResultHandler:SaveSummary] Episodes summary table saved to {summary_filepath} ({len(summary_df_to_save)} rows).")
 
     def finalize(self,
-                 main_config: Dict[str, Any], 
-                 # vis_config: Optional[Dict[str, Any]], # No usado directamente por finalize para guardado
-                 processed_data_directives: Dict[str, Any],
-                 summary_data: List[Dict], 
-                 # all_episodes_detailed_data: List[Dict], # Ya no se pasa esto, se guarda en lotes
-                 agent: Optional['RLAgent'], 
+                 main_config: Dict[str, Any],
+                 summary_data: List[Dict],
+                 agent: Optional['RLAgent'],
                  output_dir_finalize: str
                 ):
         """Realiza operaciones de guardado finales (estado del agente, resumen)."""
@@ -189,13 +181,10 @@ class ResultHandler:
             self._logger.warning("[ResultHandler:Finalize] Agent state saving enabled, but no agent instance provided.")
 
         # 2. Guardar tabla de resumen de episodios (si está habilitado en directivas)
-        if processed_data_directives.get('summary_enabled', False):
-            if summary_data: 
-                self.save_summary_table(summary_data, output_dir_finalize)
-            else: 
-                self._logger.info("[ResultHandler:Finalize] Summary data list is empty. Summary table not saved.")
+        if summary_data:
+            self.save_summary_table(summary_data, output_dir_finalize)
         else:
-            self._logger.info("[ResultHandler:Finalize] Summary table saving is disabled by data handling directives.")
+            self._logger.info("[ResultHandler:Finalize] Summary data list is empty. Summary table not saved.")
 
         # Los datos detallados ya se guardaron en lotes por SimulationManager
         self._logger.info("[ResultHandler:Finalize] --- ResultHandler Finalization Complete ---")

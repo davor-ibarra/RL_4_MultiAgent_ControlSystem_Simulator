@@ -56,7 +56,7 @@ def main():
     try:
         # --- 1. Cargar Configuración ---
         main_module_logger.info("[MAIN] Step 1: Loading and validating configuration...")
-        main_configuration, visualization_configuration, file_logging_configuration, processed_data_directives_config = load_and_validate_config('config.yaml')
+        main_configuration, visualization_configuration, file_logging_configuration, processed_data_directives_config = load_and_validate_config('super_config.yaml')
         if main_configuration is None:
             root_logger.critical("[MAIN] CRITICAL FAILURE: Main config loading failed. Aborting.")
             sys.exit(1)
@@ -102,7 +102,7 @@ def main():
 
         run_metadata = { # 'run_metadata'
             'execution_details': {
-                'framework_version': '7.1.0_Refactor_Scaled_Final', # Versión actualizada
+                'framework_version': '8.0.0_Refactor_Scaled_Final', # Versión actualizada
                 'run_timestamp': time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                 'output_directory': output_directory_path, # 'output_directory'
                 'python_version': sys.version.split()[0],
@@ -156,10 +156,7 @@ def main():
         try:
             result_handler_service.finalize(
                 main_config=main_configuration,
-                #vis_config_data=visualization_configuration,
-                processed_data_directives=processed_data_directives_config, # Pasar directivas
                 summary_data=simulation_summary_data,
-                #all_episodes_batch_data=all_episodes_detailed_data_main,
                 agent=final_agent_instance,
                 output_dir_finalize=output_directory_path
             )

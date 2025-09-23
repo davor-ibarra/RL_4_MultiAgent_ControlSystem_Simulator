@@ -1,0 +1,426 @@
+plots:
+  # --- Example Bar Plot (Termination Reasons) ---
+  - type: bar
+    enabled: true # Enable/disable this specific plot
+    source: summary # Use data from the summary DataFrame
+    variable: termination_reason # The column in the summary to count/group by
+    output_filename: fig1_termination_reason_distribution.png # Specific output name
+    config:
+      title: Termination Reason Distribution
+      title_fontsize: 28
+      figsize_w: 14
+      figsize_h: 10
+      xlabel: Episode Group [-]
+      xlabel_fontsize: 24
+      ylabel: Count [-]
+      ylabel_fontsize: 24
+      # xmin: null # Not typically used for category bar plots
+      # xmax: null
+      ymin: 0 # Start y-axis at 0
+      ymax: null # Auto scale max y
+      tick_fontsize: 18
+      xtick_rotation: 0
+      num_xticks: null # Auto ticks for categories
+      num_yticks: null
+      show_legend: true
+      legend_var: [
+                  {value: 'goal_reached', color: '#5ac15d', label: 'Goal reached'},
+                  {value: 'limit_exceeded', color: '#aec7e8', label: 'Limit exceeded'},
+                  {value: 'time_limit', color: '#fbd5e5', label: 'Time limit'},
+                  {value: 'agent_early_termination', color: '#cdb4db', label: 'Agent patience'}
+                ]
+      legend_pos: 'lower right' # 'best', 'upper right', 'upper left', 'lower left', 'lower right', 'right', 'center left', 'center right', 'lower center', 'upper center', 'center'
+      legend_fontsize: 'xx-large' # 'xx-small', 'x-small', 'small', 'medium', 'large', 'x-large', 'xx-large' or a number (e.g., 8, 10, 12)
+      grid_on: false
+      group_size: 1000 # Size for group by episodes
+      cmap: tab20 # Colormap for stacked bars
+      bar_width: 0.8
+  # --- Example Line Plot (Total Reward) ---
+  - type: line
+    enabled: false
+    source: summary # Use data from the summary DataFrame
+    x_variable: episode # Column for x-axis
+    y_variable: total_reward # Column for y-axis
+    output_filename: fig2_cumulative_reward_per_episode.png
+    config:
+      title: Cumulative Reward per Episode
+      title_fontsize: 28
+      figsize_w: 14
+      figsize_h: 7
+      xlabel: Episode [-]
+      xlabel_fontsize: 24
+      ylabel: Total Reward [-]
+      ylabel_fontsize: 24
+      xmin: null # Auto scale min x
+      xmax: null # Auto scale max x
+      ymin: null # Auto scale min y
+      ymax: null # Auto scale max y
+      tick_fontsize: 18
+      xtick_rotation: 0
+      num_xticks: null   # Approx number of desired x-ticks
+      num_yticks: null   # Approx number of desired y-ticks
+      show_legend: false # Only one line, legend not needed
+      legend_pos: best
+      grid_on: false
+      line_color: "#1f77b4" # Blue
+      line_width: 1.0
+      marker_style: 'o' # Style: '.', ',', 'o', 'v', '^', etc. or '' for none
+      marker_size: 4
+      marker_color: "#ff7f0e" # Orange
+      filter_termination_reason: null # Optional: list like ['goal_reached', 'time_limit'] or null to include all
+  # --- Example Line Plot (Episode Time) ---
+  - type: line
+    enabled: false
+    source: summary
+    x_variable: episode
+    y_variable: episode_time_duration_sec
+    output_filename: fig3_episode_duration_per_episode.png
+    config:
+      title: Episode Duration per Episode
+      title_fontsize: 28
+      figsize_w: 14
+      figsize_h: 7
+      xlabel: Episode [-]
+      xlabel_fontsize: 24
+      ylabel: Duration [s]
+      ylabel_fontsize: 24
+      xmin: null
+      xmax: null
+      ymin: 0
+      ymax: null
+      tick_fontsize: 18
+      xtick_rotation: 0
+      num_xticks: null
+      num_yticks: null
+      show_legend: false
+      legend_pos: best
+      grid_on: false
+      line_color: "#1f77b4" # Blue
+      line_width: 1.5
+      marker_style: 'o'
+      marker_size: 4
+      marker_color: "#ff7f0e" # Orange
+      filter_termination_reason: null
+  # --- Example Line Plot (Performance) ---
+  - type: line
+    enabled: false
+    source: summary
+    x_variable: episode
+    y_variable: performance
+    output_filename: fig4_performance_per_episode.png
+    config:
+      title: Performance per Episode
+      title_fontsize: 28
+      figsize_w: 14
+      figsize_h: 7
+      xlabel: Episode [-]
+      xlabel_fontsize: 24
+      ylabel: Performance [-/s]
+      ylabel_fontsize: 24
+      xmin: null
+      xmax: null
+      ymin: 0
+      ymax: null
+      tick_fontsize: 18
+      xtick_rotation: 0
+      num_xticks: null
+      num_yticks: null
+      show_legend: false
+      legend_pos: best
+      grid_on: false
+      line_color: "#1f77b4" # Blue
+      line_width: 1.0
+      marker_style: 'o'
+      marker_size: 4
+      marker_color: "#ff7f0e" # Orange
+      filter_termination_reason: null
+  
+  # HEATMAP PLOT
+  # --- Example Heatmap (Time vs Level) ---
+  - type: heatmap
+    enabled: false
+    name: "heatmap_time_vs_level"
+    source: detailed # Use data from the list of all episode details
+    x_variable: time
+    y_variable: level
+    value_variable: time # Variable con la que se calcula el aggregation
+    output_filename: fig5_heatmap_time_vs_level.png
+    config:
+      aggregation: count # mean, max, min, etc...
+      title: Heatmap - Time vs Level
+      title_fontsize: 30
+      figsize_w: 16
+      figsize_h: 12
+      xlabel: Time [s]
+      xlabel_fontsize: 28
+      ylabel: Level [m]
+      ylabel_fontsize: 28
+      xmin: 0
+      xmax: 6
+      ymin: 0.45
+      ymax: 0.8
+      tick_fontsize: 24
+      xtick_rotation: 30
+      num_xticks: 8
+      num_yticks: 8
+      clabel: Frequency # Colorbar label
+      clabel_fontsize: 26
+      cmin: null
+      cmax: 10000 #10000
+      cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
+      bins: 500 # Number of bins for histogram2d
+      log_scale: false # Use logarithmic color scale?
+      grid_on: false
+      filter_termination_reason: null
+  # --- Example Heatmap (Time vs Level) goal_reached ---
+  - type: heatmap
+    enabled: false
+    name: "heatmap_time_vs_level(goal_reached)"
+    source: detailed # Use data from the list of all episode details
+    x_variable: time
+    y_variable: level
+    value_variable: time # Variable con la que se calcula el aggregation
+    output_filename: fig6_heatmap_time_vs_level(goal_reached).png
+    config:
+      aggregation: count # mean, max, min, etc...
+      title: Heatmap - Time vs Level (goal_reached)
+      title_fontsize: 18
+      figsize_w: 14
+      figsize_h: 10
+      xlabel: Time [s]
+      xlabel_fontsize: 16
+      ylabel: Level [m]
+      ylabel_fontsize: 16
+      xmin: 0
+      xmax: 6
+      ymin: 0.45
+      ymax: 0.8
+      tick_fontsize: 14
+      xtick_rotation: 30
+      num_xticks: 8
+      num_yticks: 8
+      clabel: Frequency # Colorbar label
+      clabel_fontsize: 14
+      cmin: null
+      cmax: null #1000
+      cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
+      bins: 500 # Number of bins for histogram2d
+      log_scale: false # Use logarithmic color scale?
+      grid_on: false
+      filter_termination_reason: ['goal_reached']
+  # --- Example Heatmap (level_rate vs Level) ---
+  - type: heatmap
+    enabled: false
+    name: "heatmap_level_rate_vs_level"
+    source: detailed
+    x_variable: level_rate
+    y_variable: level
+    value_variable: level # Variable con la que se calcula el aggregation
+    output_filename: fig7_heatmap_level_rate_vs_level.png
+    config:
+      aggregation: count # mean, max, min, etc...
+      title: Heatmap - Level Rate vs Level
+      title_fontsize: 30
+      figsize_w: 16
+      figsize_h: 12
+      xlabel: Level Rate (m/s)
+      xlabel_fontsize: 28
+      ylabel: Level (m)
+      ylabel_fontsize: 28
+      xmin: 0.0
+      xmax: 0.1
+      ymin: 0.45
+      ymax: 0.8
+      tick_fontsize: 24
+      xtick_rotation: 30
+      num_xticks: 5
+      num_yticks: 8
+      clabel: Frequency [-]
+      clabel_fontsize: 26
+      cmin: null
+      cmax: 10000 #1000
+      cmap: hot
+      bins: 500
+      log_scale: false
+      grid_on: false
+      filter_termination_reason: null    
+  # --- Example Heatmap (Time vs valve_opening) ---
+  - type: heatmap
+    enabled: false
+    name: "heatmap_time_vs_valve_opening"
+    source: detailed # Use data from the list of all episode details
+    x_variable: time
+    y_variable: normalize_control_action
+    value_variable: time # Variable con la que se calcula el aggregation
+    output_filename: fig8_heatmap_time_vs_valve_opening.png
+    config:
+      aggregation: count # mean, max, min, etc...
+      title: Heatmap - Time vs Valve Opening
+      title_fontsize: 30
+      figsize_w: 16
+      figsize_h: 12
+      xlabel: Time [s]
+      xlabel_fontsize: 28
+      ylabel: Valve Opening (%)
+      ylabel_fontsize: 28
+      xmin: 0
+      xmax: 6
+      ymin: 0
+      ymax: 1.1
+      tick_fontsize: 24
+      xtick_rotation: 30
+      num_xticks: 6
+      num_yticks: 12
+      clabel: Frequency [-]
+      clabel_fontsize: 26
+      cmin: null
+      cmax: 10000 #5000
+      cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
+      bins: 500 # Number of bins for histogram2d
+      log_scale: false # Use logarithmic color scale?
+      grid_on: false
+      filter_termination_reason: null
+  # --- Example Heatmap (Time vs valve_opening) goal_reached ---
+  - type: heatmap
+    enabled: false
+    name: "heatmap_time_vs_valve_opening(goal_reached)"
+    source: detailed # Use data from the list of all episode details
+    x_variable: time
+    y_variable: normalize_control_action
+    value_variable: time # Variable con la que se calcula el aggregation
+    output_filename: fig9_heatmap_time_vs_valve_opening(goal_reached).png
+    config:
+      aggregation: count # mean, max, min, etc...
+      title: Heatmap - Time vs Valve Opening (goal_reached)
+      title_fontsize: 18
+      figsize_w: 14
+      figsize_h: 10
+      xlabel: Time [s]
+      xlabel_fontsize: 16
+      ylabel: Valve Opening (%)
+      ylabel_fontsize: 16
+      xmin: 0
+      xmax: 6
+      ymin: -0.1
+      ymax: 1.1
+      tick_fontsize: 14
+      xtick_rotation: 30
+      num_xticks: 6
+      num_yticks: 5
+      clabel: Frequency
+      clabel_fontsize: 14
+      cmin: null
+      cmax: null
+      cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
+      bins: 500 # Number of bins for histogram2d
+      log_scale: false # Use logarithmic color scale?
+      grid_on: false
+      filter_termination_reason: ['goal_reached']
+  # --- Example Heatmap (Time vs Force) ---
+  - type: heatmap
+    enabled: false
+    name: "heatmap_time_vs_control_action"
+    source: detailed # Use data from the list of all episode details
+    x_variable: time
+    y_variable: control_action
+    value_variable: time # Variable con la que se calcula el aggregation
+    output_filename: fig10_heatmap_time_vs_control_action.png
+    config:
+      aggregation: count # mean, max, min, etc...
+      title: Heatmap - Time vs Control action
+      title_fontsize: 18
+      figsize_w: 14
+      figsize_h: 10
+      xlabel: Time [s]
+      xlabel_fontsize: 16
+      ylabel: Control action (N)
+      ylabel_fontsize: 16
+      xmin: 0
+      xmax: 6
+      ymin: -2
+      ymax: 2
+      tick_fontsize: 14
+      xtick_rotation: 30
+      num_xticks: 6
+      num_yticks: 5
+      clabel: Frequency
+      clabel_fontsize: 14
+      cmin: null
+      cmax: null #10000
+      cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
+      bins: 500 # Number of bins for histogram2d
+      log_scale: false # Use logarithmic color scale?
+      grid_on: false
+      filter_termination_reason: null
+  # --- Example Heatmap (Time vs pid_output_limited) goal_reached ---
+  - type: heatmap
+    enabled: false
+    name: "heatmap_time_vs_control_action(goal_reached)"
+    source: detailed # Use data from the list of all episode details
+    x_variable: time
+    y_variable: control_action
+    value_variable: time # Variable con la que se calcula el aggregation
+    output_filename: fig11_heatmap_time_vs_control_action(goal_reached).png
+    config:
+      aggregation: count # mean, max, min, etc...
+      title: Heatmap - Time vs Control Action (goal_reached)
+      title_fontsize: 18
+      figsize_w: 14
+      figsize_h: 10
+      xlabel: Time [s]
+      xlabel_fontsize: 16
+      ylabel: Control Action (N)
+      ylabel_fontsize: 16
+      xmin: 0
+      xmax: 6
+      ymin: -2
+      ymax: 2
+      tick_fontsize: 14
+      xtick_rotation: 30
+      num_xticks: 6
+      num_yticks: 5
+      clabel: Frequency
+      clabel_fontsize: 14
+      cmin: null
+      cmax: null
+      cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
+      bins: 500 # Number of bins for histogram2d
+      log_scale: false # Use logarithmic color scale?
+      grid_on: false
+      filter_termination_reason: ['goal_reached']
+    # --- Example Heatmap (Q_in vs Q_out) ---
+  - type: heatmap
+    enabled: false
+    name: "heatmap_Q_in_vs_Q_out"
+    source: detailed
+    x_variable: Q_in
+    y_variable: Q_out
+    value_variable: Q_in # Variable con la que se calcula el aggregation
+    output_filename: fig12_Q_in_vs_Q_out.png
+    config:
+      aggregation: count # mean, max, min, etc...
+      title: Heatmap - Q in vs Q out
+      title_fontsize: 18
+      figsize_w: 14
+      figsize_h: 10
+      xlabel: Q in (m)
+      xlabel_fontsize: 16
+      ylabel: Q out (m/s)
+      ylabel_fontsize: 16
+      xmin: 0.005
+      xmax: 0.025
+      ymin: 0.005
+      ymax: 0.0053
+      tick_fontsize: 14
+      xtick_rotation: 30
+      num_xticks: 5
+      num_yticks: 5
+      clabel: Frequency
+      clabel_fontsize: 14
+      cmin: null
+      cmax: null #1000
+      cmap: hot
+      bins: 500
+      log_scale: false
+      grid_on: false
+      filter_termination_reason: null    

@@ -14,7 +14,10 @@ class InvertedPendulumSystem(DynamicSystem):
                  l: float,                    # Longitud del péndulo (se mantiene 'l' por ser estándar en física)
                  g: float,                    # Gravedad (se mantiene 'g')
                  cart_friction_coef: float = 0.0, # cr -> cart_friction_coef
-                 pivot_friction_coef: float = 0.0 # ca -> air_friction_coef
+                 pivot_friction_coef: float = 0.0, # ca -> air_friction_coef
+                 max_torque_nm: float = 2.0,        # Torque Máximo
+                 gear_ratio: float = 1.0,           # Relación de engranajes
+                 pinion_radius_m: float = 0.05      # Radio de rueda o piñon del engrane 0.05 m
                 ):
         # Parámetros vienen de config['environment']['system']['params']
         logger.info(f"[InvertedPendulumSystem] Initializing with mass_cart_kg={mass_cart_kg}, mass_pendulum_kg={mass_pendulum_kg}, l={l}, g={g}, cart_friction_coef={cart_friction_coef}, pivot_friction_coef={pivot_friction_coef}")
@@ -27,6 +30,12 @@ class InvertedPendulumSystem(DynamicSystem):
         self.g_accel = float(g) # g también
         self.cr_friction = float(cart_friction_coef)
         self.ca_friction = float(pivot_friction_coef)
+
+        self.F: float = 0.0
+        self.tau_max = float(max_torque_nm)
+        self.G = float(gear_ratio)
+        self.r = float(pinion_radius_m)
+        self.next_state_integrated_arr: list = []
 
         if not (self.m1 > 0 and self.m2 > 0 and self.l_bar > 0 and self.g_accel > 0):
             raise ValueError("Masas, longitud y gravedad deben ser positivas para InvertedPendulumSystem.")
@@ -79,29 +88,49 @@ class InvertedPendulumSystem(DynamicSystem):
         return [dx1_dt, dx2_dt, dx3_dt, dx4_dt]
 
     def apply_action(self, current_state_vec: Any, control_action_val: float, current_time: float, dt_val: float) -> np.ndarray:
-
+        
+        tau = control_action_val * self.tau_max
+        self.F = (self.G * tau) / self.r
+        
         time_integration_points = [current_time, current_time + dt_val]
-
         current_state_np_arr = np.array(current_state_vec, dtype=float).flatten()
 
         # Llamada a odeint. Si _dynamics o los inputs son malos (ej. NaN), odeint puede fallar o devolver NaNs.
-        next_state_integrated_arr = odeint(
+        self.next_state_integrated_arr = odeint(
             self._dynamics,                 # Función a integrar
             current_state_np_arr,           # Estado inicial y0
             time_integration_points,        # Puntos de tiempo t
-            args=(control_action_val,)      # Argumentos extra para _dynamics (después de t)
+            args=(self.F,)      # Argumentos extra para _dynamics (después de t)
         )[-1]                               # Tomar el último punto de tiempo (estado final del intervalo dt)
 
         # Normalizar el ángulo theta (índice 2) a [-pi, pi]
-        next_state_integrated_arr[2] = (next_state_integrated_arr[2] + np.pi) % (2 * np.pi) - np.pi
+        self.next_state_integrated_arr[2] = (self.next_state_integrated_arr[2] + np.pi) % (2 * np.pi) - np.pi
         
         # logger.debug(f"State In: {np.round(current_state_np_arr,3)}, Action: {control_action_val:.3f} -> State Out: {np.round(next_state_integrated_arr,3)}")
-        return next_state_integrated_arr
+        return self.next_state_integrated_arr
 
     def reset(self, initial_conditions_state: Any) -> np.ndarray: # 'initial_conditions_state'
-        # Asumir que initial_conditions_state es una lista/array de 4 números.
-        initial_state_arr = np.array(initial_conditions_state, dtype=float).flatten()
+        # Construir el vector de estado en el orden esperado por _dynamics
+        try:
+            initial_state_arr = np.array([
+                initial_conditions_state['cart_position'],
+                initial_conditions_state['cart_velocity'],
+                initial_conditions_state['pendulum_angle'],
+                initial_conditions_state['pendulum_velocity']
+            ], dtype=float)
+        except KeyError as e:
+            raise KeyError(f"Missing required key in initial_conditions for InvertedPendulumSystem: {e}")
         # Normalizar ángulo inicial
         initial_state_arr[2] = (initial_state_arr[2] + np.pi) % (2 * np.pi) - np.pi
         # logger.debug(f"[InvertedPendulumSystem] Reset to: {np.round(initial_state_arr, 4)}")
         return initial_state_arr
+    
+    def get_log_system_params(self) -> Dict[str, float]:
+        """Devuelve los últimos state calculados."""
+        return {
+            'cart_position': self.next_state_integrated_arr[0],
+            'cart_velocity': self.next_state_integrated_arr[1],
+            'pendulum_angle': self.next_state_integrated_arr[2],
+            'pendulum_velocity': self.next_state_integrated_arr[3],
+            'cart_force': self.F
+        }

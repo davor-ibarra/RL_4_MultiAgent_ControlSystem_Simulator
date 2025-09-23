@@ -9,104 +9,70 @@ from typing import Dict, Any, Optional, Tuple, List
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)-4s - %(name)-4s - %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
+
 logger = logging.getLogger(__name__)
 
-def _validate_data_handling_directives(data_handling_content: Dict[str, Any], sub_config_filename: str) -> Dict[str, Any]:
+def _get_data_save_directives(data_handling_content: Dict[str, Any], sub_config_filename: str) -> Dict[str, Any]:
     """
-    Valida la estructura y tipos del contenido del sub-archivo de data_handling.
-    Extrae directivas procesadas. Lanza errores si la estructura es inválida.
+    Extrae el diccionario 'data_save' del contenido del sub-archivo de configuración.
+    Ya no se valida la estructura interna; esa responsabilidad se delega al consumidor.
+    Devuelve un diccionario vacío si no se encuentra.
     """
-    directives: Dict[str, Any] = {
-        'json_history_enabled': False, 'allowed_json_metrics': [],
-        'summary_enabled': False, 'summary_direct_columns': [],
-        'summary_stats_enabled': False, 'summary_stat_indicators': [], 'summary_stat_columns': []
-    }
-    err_prefix = f"[ConfigLoader:_validate_data_handling_directives] Error en '{sub_config_filename}':"
+    err_prefix = f"[ConfigLoader:_get_data_save_directives] en '{sub_config_filename}':"
 
     if not isinstance(data_handling_content, dict):
-        raise TypeError(f"{err_prefix} El contenido debe ser un diccionario.")
+        logger.warning(f"{err_prefix} El contenido no es un diccionario. Se devuelven directivas vacías.")
+        return {}
 
     data_save_cfg = data_handling_content.get('data_save')
     if not isinstance(data_save_cfg, dict):
-        # Permitir que 'data_save' esté ausente, usando defaults. Si está pero no es dict, es error.
-        logger.warning(f"{err_prefix} Sección 'data_save' ausente o no es dict. Usando directivas por defecto (deshabilitadas).")
-        return directives # Devuelve defaults si 'data_save' no está o es inválido
+        logger.warning(f"{err_prefix} La sección 'data_save' está ausente o no es un diccionario. Se devuelven directivas vacías.")
+        return {}
 
-    # --- json_history ---
-    json_hist_cfg = data_save_cfg.get('json_history')
-    if isinstance(json_hist_cfg, dict):
-        directives['json_history_enabled'] = bool(json_hist_cfg.get('enable', False))
-        allowed_metrics = json_hist_cfg.get('json_history_params', [])
-        if isinstance(allowed_metrics, list) and all(isinstance(item, str) for item in allowed_metrics):
-            directives['allowed_json_metrics'] = allowed_metrics
-        elif directives['json_history_enabled']: # Error si está enabled pero params son inválidos
-            raise TypeError(f"{err_prefix} 'json_history.json_history_params' debe ser lista de strings si 'enable' es true.")
-    elif json_hist_cfg is not None: # Existe pero no es dict
-         raise TypeError(f"{err_prefix} 'json_history' debe ser un diccionario si se provee.")
-
-
-    # --- summary ---
-    summary_cfg = data_save_cfg.get('summary')
-    if isinstance(summary_cfg, dict):
-        directives['summary_enabled'] = bool(summary_cfg.get('enabled', False))
-        direct_cols = summary_cfg.get('summary_params', [])
-        if isinstance(direct_cols, list) and all(isinstance(item, str) for item in direct_cols):
-            directives['summary_direct_columns'] = direct_cols
-        elif directives['summary_enabled']:
-            raise TypeError(f"{err_prefix} 'summary.summary_params' debe ser lista de strings si 'enabled' es true.")
-
-        # --- summary_statistics ---
-        summary_stats_cfg = summary_cfg.get('summary_statistics')
-        if isinstance(summary_stats_cfg, dict):
-            directives['summary_stats_enabled'] = bool(summary_stats_cfg.get('enabled', False))
-            indicators = summary_stats_cfg.get('indicators', [])
-            stat_cols = summary_stats_cfg.get('summary_statistics_params', [])
-
-            if isinstance(indicators, list) and all(isinstance(item, str) for item in indicators):
-                directives['summary_stat_indicators'] = indicators
-            elif directives['summary_stats_enabled']:
-                raise TypeError(f"{err_prefix} 'summary.summary_statistics.indicators' debe ser lista de strings si 'enabled' es true.")
-            
-            if isinstance(stat_cols, list) and all(isinstance(item, str) for item in stat_cols):
-                directives['summary_stat_columns'] = stat_cols
-            elif directives['summary_stats_enabled']:
-                raise TypeError(f"{err_prefix} 'summary.summary_statistics.summary_statistics_params' debe ser lista de strings si 'enabled' es true.")
-        elif summary_stats_cfg is not None and directives['summary_enabled']: # Existe pero no es dict
-            raise TypeError(f"{err_prefix} 'summary.summary_statistics' debe ser un diccionario si se provee y summary está enabled.")
-            
-    elif summary_cfg is not None: # Existe pero no es dict
-        raise TypeError(f"{err_prefix} 'summary' debe ser un diccionario si se provee.")
-        
-    logger.debug(f"[ConfigLoader] Data handling directives processed from '{sub_config_filename}': EnabledJSON={directives['json_history_enabled']}, EnabledSummary={directives['summary_enabled']}")
-    return directives
-
+    logger.debug(f"[ConfigLoader] Se extrajeron las directivas 'data_save' en crudo de '{sub_config_filename}'.")
+    return data_save_cfg
 
 def load_and_validate_config(
-    config_filename: str = 'config.yaml'
+    config_filename: str = 'super_config.yaml'
 ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     """
     Carga y valida configuraciones.
     Devuelve: (main_config, vis_config, logging_config, processed_data_directives).
-    processed_data_directives siempre será un dict (posiblemente con defaults).
+    processed_data_directives ahora contiene el diccionario 'data_save' completo del sub-archivo.
     """
     script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-    main_config_path = os.path.join(script_dir, config_filename)
+    super_config_path = os.path.join(script_dir, config_filename)
     main_config: Optional[Dict[str, Any]] = None
     vis_config: Optional[Dict[str, Any]] = None
     logging_config_data: Dict[str, Any] = {} # Renombrado para evitar colisión
     data_directives_processed: Dict[str, Any] # Siempre se inicializa
 
+    if not os.path.exists(super_config_path):
+        logger.critical(f"[ConfigLoader] CRITICAL: 'super_config.yaml' not found in the root directory.")
+        return None, None, {}, _get_data_save_directives({}, "dummy_for_defaults.yaml")
+    
+    with open(super_config_path, 'r', encoding='utf-8') as f_super:
+        super_config = yaml.safe_load(f_super)
+    
+    active_config_filename = super_config.get('active_config_file')
+    if not active_config_filename:
+        logger.critical(f"[ConfigLoader] CRITICAL: 'active_config_file' key not found or is empty in 'super_config.yaml'.")
+        return None, None, {}, _get_data_save_directives({}, "dummy_for_defaults.yaml")
+        
+    config_dir = os.path.join(script_dir, 'config')
+    main_config_path = os.path.join(config_dir, active_config_filename)
+
     logger.info(f"[ConfigLoader] Attempting to load main config from: {main_config_path}")
     if not os.path.exists(main_config_path):
         logger.critical(f"[ConfigLoader] CRITICAL: Main config file not found: {main_config_path}")
         # Devolver defaults para data_directives_processed para que main no falle si SimMan lo necesita
-        return None, None, {}, _validate_data_handling_directives({}, "dummy_for_defaults.yaml")
+        return None, None, {}, _get_data_save_directives({}, "dummy_for_defaults.yaml")
 
     try:
         with open(main_config_path, 'r', encoding='utf-8') as file:
             main_config = yaml.safe_load(file)
         if not isinstance(main_config, dict):
-            raise TypeError(f"Content of '{config_filename}' is not a valid YAML dictionary.")
+            raise TypeError(f"Content of '{active_config_filename}' is not a valid YAML dictionary.")
         logger.info(f"[ConfigLoader] Main configuration loaded from: {main_config_path}")
 
         # --- Validación Estructural Mínima de main_config ---
@@ -114,7 +80,7 @@ def load_and_validate_config(
         required_sections = ['environment', 'data_handling', 'visualization', 'logging']
         for section in required_sections:
             if section not in main_config or not isinstance(main_config[section], dict):
-                raise KeyError(f"Required top-level section '{section}' missing or not a dictionary in '{config_filename}'.")
+                raise KeyError(f"Required top-level section '{section}' missing or not a dictionary in '{active_config_filename}'.")
         
         # Validaciones más específicas para environment (ejemplos)
         env_cfg = main_config['environment']
@@ -139,8 +105,8 @@ def load_and_validate_config(
         logger.debug("[ConfigLoader] Basic structure of main_config validated.")
 
     except (yaml.YAMLError, FileNotFoundError, TypeError, ValueError, KeyError) as e_cfg_load:
-        logger.critical(f"[ConfigLoader] CRITICAL error loading/validating '{config_filename}': {e_cfg_load}", exc_info=True)
-        return None, None, {}, _validate_data_handling_directives({}, "dummy_for_defaults_on_error.yaml")
+        logger.critical(f"[ConfigLoader] CRITICAL error loading/validating '{active_config_filename}': {e_cfg_load}", exc_info=True)
+        return None, None, {}, _get_data_save_directives({}, "dummy_for_defaults_on_error.yaml")
 
 
     # --- Logging Config ---
@@ -151,7 +117,7 @@ def load_and_validate_config(
     if vis_settings.get('enabled', False):
         vis_file_path = vis_settings.get('config_file')
         if vis_file_path and isinstance(vis_file_path, str):
-            abs_vis_path = os.path.join(script_dir, vis_file_path)
+            abs_vis_path = os.path.join(config_dir, vis_file_path)
             if os.path.exists(abs_vis_path):
                 try:
                     with open(abs_vis_path, 'r', encoding='utf-8') as vf: vis_config = yaml.safe_load(vf)
@@ -168,29 +134,29 @@ def load_and_validate_config(
 
 
     # --- Data Handling Directives ---
-    data_handling_cfg_main = main_config.get('data_handling', {}) # Ya se validó
-    sub_config_file_path = data_handling_cfg_main.get('config_file') # Ya se validó que existe si data_handling es dict
+    data_handling_cfg_main = main_config.get('data_handling', {})
+    sub_config_file_path = data_handling_cfg_main.get('config_file')
     
     if not sub_config_file_path or not isinstance(sub_config_file_path, str):
         # Esto no debería ocurrir si la validación de main_config fue estricta.
         logger.error("[ConfigLoader] 'data_handling.config_file' missing or invalid in main_config. Using default (disabled) data directives.")
-        data_directives_processed = _validate_data_handling_directives({}, sub_config_file_path if sub_config_file_path else "N/A")
+        data_directives_processed = _get_data_save_directives({}, sub_config_file_path if sub_config_file_path else "N/A")
     else:
-        abs_sub_config_path = os.path.join(script_dir, sub_config_file_path)
+        abs_sub_config_path = os.path.join(config_dir, sub_config_file_path)
         if not os.path.exists(abs_sub_config_path):
             logger.error(f"[ConfigLoader] Data handling sub-config '{abs_sub_config_path}' NOT found. Using default (disabled) data directives.")
-            data_directives_processed = _validate_data_handling_directives({}, sub_config_file_path)
+            data_directives_processed = _get_data_save_directives({}, sub_config_file_path)
         else:
             try:
                 with open(abs_sub_config_path, 'r', encoding='utf-8') as dh_f:
                     dh_content = yaml.safe_load(dh_f)
                 if not isinstance(dh_content, dict) : # El archivo debe ser un dict en la raíz
                     raise TypeError(f"Content of '{sub_config_file_path}' is not a valid YAML dictionary at its root.")
-                data_directives_processed = _validate_data_handling_directives(dh_content, sub_config_file_path)
+                data_directives_processed = _get_data_save_directives(dh_content, sub_config_file_path)
                 logger.info(f"Data handling directives loaded and validated from: {abs_sub_config_path}")
             except Exception as e_dh_sub_load: # Captura YAML, TypeError, ValueError de _validate
                 logger.critical(f"[ConfigLoader] CRITICAL error loading/validating data handling sub-config '{sub_config_file_path}': {e_dh_sub_load}. Aborting.", exc_info=True)
                 # Si falla la carga/validación del sub-archivo de datos, es crítico.
-                return None, None, {}, _validate_data_handling_directives({}, "dummy_on_sub_config_fail.yaml")
+                return None, None, {}, _get_data_save_directives({}, "dummy_on_sub_config_fail.yaml")
 
     return main_config, vis_config, logging_config_data, data_directives_processed

@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 import logging
-from typing import Dict, List, Any, Callable, Optional
+from typing import Dict, List, Any, Callable, Optional, Tuple, Set
 
 logger_dp_mod = logging.getLogger(__name__) # Renombrado para evitar colisión con logger global
 
@@ -76,63 +76,67 @@ def get_last_valid_value_from_list(
     if isinstance(last_valid_val, np.bool_): return bool(last_valid_val)
     return last_valid_val
 
-
 def summarize_episode(
-    detailed_metrics: Dict[str, List[Any]], # Métricas detalladas del episodio
-    summary_directives_config: Dict[str, Any] # Directivas de 'processed_data_directives'
+    detailed_metrics: Dict[str, List[Any]],
+    summary_directives: Tuple[Set[str], Set[str]],
+    global_summary_config: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Genera un diccionario resumen para un episodio, usando directivas."""
-    # logger_dp_mod.debug(f"Summarizing episode. Directives: {summary_directives_config.keys()}")
+    
+    if not global_summary_config.get('enabled_summary', False):
+        return {}
+
     ep_summary: Dict[str, Any] = {}
     
-    # Asegurar que 'episode' siempre esté, si está en las métricas detalladas
-    ep_summary['episode'] = get_last_valid_value_from_list(detailed_metrics, 'episode', -1)
+    # --- 1. Usar directivas pre-procesadas ---
+    direct_cols_keys, stat_cols_keys = summary_directives
 
-    # 1. Columnas Directas (último valor válido)
-    direct_cols = summary_directives_config.get('summary_direct_columns', [])
-    for col_key_direct in direct_cols:
-        if col_key_direct == 'episode': continue # Ya añadido
-        if col_key_direct in detailed_metrics:
-            ep_summary[col_key_direct] = get_last_valid_value_from_list(detailed_metrics, col_key_direct)
-        # else: logger_dp_mod.debug(f"Direct summary key '{col_key_direct}' not in detailed_metrics.")
+    # --- 2. Extraer valores directos para el resumen ---
+    # Para las columnas directas, tomamos el ÚLTIMO valor válido de la serie temporal.
+    for col_key in direct_cols_keys:
+        ep_summary[col_key] = get_last_valid_value_from_list(detailed_metrics, col_key)
 
-    # 2. Estadísticas Agregadas
-    if summary_directives_config.get('summary_stats_enabled', False):
-        stat_metric_keys = summary_directives_config.get('summary_stat_columns', [])
-        stat_indicators_list = summary_directives_config.get('summary_stat_indicators', [])
+    # --- 3. Calcular métricas derivadas y añadirlas directamente al resumen ---
+    times = detailed_metrics.get('time', [])
+    if times:
+        sim_duration = times[-1]
+        # La clave 'time_duration' para el summary se calcula aquí, no se extrae.
+        if 'time_duration' in direct_cols_keys:
+            ep_summary['time_duration'] = sim_duration
         
-        # Mapeo de indicadores a funciones (simplificado)
+        total_reward = np.nansum(detailed_metrics.get('reward', [0.0]))
+        ep_summary['total_reward'] = total_reward
+        ep_summary['performance'] = total_reward / sim_duration if sim_duration > 1e-9 else 0.0
+        
+        stability_scores = detailed_metrics.get('stability_score')
+        if stability_scores and any(pd.notna(s) for s in stability_scores):
+            ep_summary['avg_stability_score'] = np.nanmean(stability_scores)
+        else:
+            ep_summary['avg_stability_score'] = np.nan
+
+    # --- 4. Calcular y extraer estadísticas agregadas ---
+    if global_summary_config.get('enabled_summary_stats', False):
+        stat_indicators = global_summary_config.get('statistics_metrics', [])
         agg_funcs: Dict[str, Callable] = {
-            '_mean': np.nanmean, '_sigma': np.nanstd, '_min': np.nanmin, '_max': np.nanmax,
-            'p50': np.nanmedian, # p50 es mediana
-            # Lambdas para percentiles que usan np.nanpercentile
-            'p25': lambda s: np.nanpercentile(s, 25) if len(s[~np.isnan(s)]) > 0 else np.nan,
-            'p75': lambda s: np.nanpercentile(s, 75) if len(s[~np.isnan(s)]) > 0 else np.nan,
+            '_mean': np.nanmean, '_sigma': np.nanstd, '_min': np.nanmin,
+            'p25': lambda s: np.nanpercentile(s, 25) if not s.empty and not s.isnull().all() else np.nan,
+            'p50': lambda s: np.nanpercentile(s, 50) if not s.empty and not s.isnull().all() else np.nan,
+            'p75': lambda s: np.nanpercentile(s, 75) if not s.empty and not s.isnull().all() else np.nan,
+            '_max': np.nanmax
         }
         
-        for metric_key_for_stat in stat_metric_keys:
-            if metric_key_for_stat in detailed_metrics:
-                data_list_for_stat = detailed_metrics[metric_key_for_stat]
-                if not isinstance(data_list_for_stat, list): continue # Solo procesar listas
+        for metric_key in stat_cols_keys:
+            if metric_key in detailed_metrics:
+                data_series = pd.to_numeric(pd.Series(detailed_metrics[metric_key]), errors='coerce')
+                for indicator_id in stat_indicators:
+                    if indicator_id in agg_funcs:
+                        summary_col_name = f"{metric_key}{indicator_id}"
+                        ep_summary[summary_col_name] = _safe_aggregate_series(data_series, agg_funcs[indicator_id], indicator_id)
 
-                # Crear pd.Series para facilitar agregaciones y manejo de NaNs
-                # Convertir a numérico aquí, errores a NaN
-                pd_series_data = pd.to_numeric(pd.Series(data_list_for_stat), errors='coerce')
-
-                for indicator_str in stat_indicators_list:
-                    agg_function_to_call = agg_funcs.get(indicator_str)
-                    if agg_function_to_call:
-                        summary_col_name = f"{metric_key_for_stat}{indicator_str}"
-                        # _safe_aggregate_series ya maneja NaNs y tipos numéricos
-                        ep_summary[summary_col_name] = _safe_aggregate_series(pd_series_data, agg_function_to_call, indicator_str)
-                    # else: logger_dp_mod.warning(f"Unknown indicator '{indicator_str}' for metric '{metric_key_for_stat}'.")
-            # else: logger_dp_mod.debug(f"Stat column key '{metric_key_for_stat}' not in detailed_metrics.")
-
-    # 3. Procesamiento Adicional (ej. métricas de ET que son directas pero se basan en gain_id)
-    #    Se asume que si 'patience_M_kp' está en 'summary_direct_columns', ya se extrajo.
-    #    Si se necesitan agregaciones de métricas de ET (ej. promedio de 'improvement_metric_value_kp'),
-    #    deben estar en 'summary_stat_columns' y 'summary_stat_indicators'.
-    #    El '_agent_defining_vars' puede ser útil si se quiere iterar y construir nombres de métricas dinámicamente.
-    #    Por ahora, la lógica de arriba es genérica y se basa en los nombres exactos en las directivas.
-
-    return ep_summary
+    # --- 5. Reordenar columnas del resumen final ---
+    first_cols = global_summary_config.get('summary_first_cols', [])
+    ordered_summary = {col: ep_summary.pop(col) for col in first_cols if col in ep_summary}
+    remaining_keys_sorted = sorted(ep_summary.keys())
+    for key in remaining_keys_sorted:
+        ordered_summary[key] = ep_summary[key]
+            
+    return ordered_summary

@@ -1,7 +1,7 @@
 # interfaces/dynamic_system.py
 from abc import ABC, abstractmethod
 import numpy as np # Importar numpy para type hint potencial
-from typing import Any # Import Any for type hint
+from typing import Any, Dict # Import Any for type hint
 
 # 2.1: Interfaz sin cambios funcionales, pero se refinan docstrings y tipos.
 class DynamicSystem(ABC):
@@ -10,7 +10,7 @@ class DynamicSystem(ABC):
     Defines methods for applying actions and resetting the system state.
     """
     @abstractmethod
-    def apply_action(self, state: Any, action: float, t: float, dt: float) -> Any:
+    def apply_action(self, state: Any, action: Any, t: float, dt: float) -> Any:
         """
         Applies a control action to the system and computes the next state
         after a time step dt, typically by solving the system's dynamics.

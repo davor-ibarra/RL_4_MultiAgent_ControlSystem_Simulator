@@ -33,13 +33,5 @@ class AgentFactory:
             error_msg = f"Unknown agent type specified: '{agent_type}'. Available types: {list(self._creators.keys())}"
             logger.critical(f"[AgentFactory:create_agent] {error_msg}")
             raise ValueError(error_msg)
-
-        # Validación mínima de que reward_strategy (requerida por PIDQLearningAgent) está y es del tipo correcto.
-        # El resto de los params son validados por el constructor del agente.
-        if 'reward_strategy' not in agent_constructor_params or \
-           not isinstance(agent_constructor_params['reward_strategy'], RewardStrategy):
-            error_msg_rs = "Agent constructor_params missing 'reward_strategy' or it's not a RewardStrategy instance."
-            logger.critical(f"[AgentFactory:create_agent] {error_msg_rs}")
-            raise TypeError(error_msg_rs)
             
         return creator(**agent_constructor_params)

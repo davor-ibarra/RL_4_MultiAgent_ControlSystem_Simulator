@@ -26,7 +26,7 @@ class EchoBaselineRewardStrategy(RewardStrategy):
         self, 
         gain_id: str,
         agent_instance: 'RLAgent',
-        controller_instance: 'Controller',
+        controllers_dict: Dict[str, 'Controller'],
         current_agent_s_dict: Dict[str, Any],
         current_s_indices: tuple,
         actions_taken_map: Dict[str, int],

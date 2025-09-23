@@ -9,6 +9,7 @@ import matplotlib.colors as mcolors
 from matplotlib.ticker import ScalarFormatter
 import numpy as np
 import seaborn as sns
+import gc
 
 from interfaces.plot_generator import PlotGenerator
 
@@ -37,7 +38,7 @@ class MatplotlibPlotGenerator(PlotGenerator):
         plot_name = plot_config_data.get("name", f"plot_{plot_config_data.get('type', 'unknown')}_{plot_config_data.get('_internal_plot_index','?')}") # Para logging
 
         # 2. --- Títulos y Etiquetas ---
-        ax.set_title(cfg.get('title', plot_name), fontsize=cfg.get('title_fontsize', 14))
+        ax.set_title(cfg.get('title', plot_name), fontsize=cfg.get('title_fontsize', 14), pad=5)
         # Obtener texto de etiqueta actual o usar variable de config como fallback
         current_xlabel_text = ax.get_xlabel()
         current_ylabel_text = ax.get_ylabel()
@@ -46,8 +47,8 @@ class MatplotlibPlotGenerator(PlotGenerator):
         # Formatear defaults si son strings no vacíos
         final_xlabel = cfg.get('xlabel', default_xlabel.replace('_', ' ').title() if isinstance(default_xlabel, str) and default_xlabel else default_xlabel)
         final_ylabel = cfg.get('ylabel', default_ylabel.replace('_', ' ').title() if isinstance(default_ylabel, str) and default_ylabel else default_ylabel)
-        ax.set_xlabel(final_xlabel, fontsize=cfg.get('xlabel_fontsize', 12))
-        ax.set_ylabel(final_ylabel, fontsize=cfg.get('ylabel_fontsize', 12))
+        ax.set_xlabel(final_xlabel, fontsize=cfg.get('xlabel_fontsize', 12), labelpad=5)
+        ax.set_ylabel(final_ylabel, fontsize=cfg.get('ylabel_fontsize', 12), labelpad=5)
 
         # 3. --- Límites de Ejes (Aplicar estrictamente desde config) ---
         # Estos se aplican DESPUÉS de que el plot se haya dibujado (incluyendo imshow con extent)
@@ -112,9 +113,9 @@ class MatplotlibPlotGenerator(PlotGenerator):
             legend_fs = cfg.get('legend_fontsize', 'small')
             legend_title = cfg.get('legend_title', None)
             if legend_pos == 'outside':
-                ax.legend(handles, labels, title=legend_title, bbox_to_anchor=(1.04, 1), loc='upper left', fontsize=legend_fs)
+                ax.legend(handles, labels, title=legend_title, bbox_to_anchor=(1.04, 1), loc='upper left', fontsize=legend_fs, title_fontsize=legend_fs)
             else:
-                ax.legend(handles, labels, title=legend_title, loc=legend_pos, fontsize=legend_fs)
+                ax.legend(handles, labels, title=legend_title, loc=legend_pos, fontsize=legend_fs, title_fontsize=legend_fs)
         elif ax.get_legend() is not None:
              ax.get_legend().remove()
 
@@ -155,14 +156,16 @@ class MatplotlibPlotGenerator(PlotGenerator):
             if not raw_episode_list: return None
             for i, episode_dict in enumerate(raw_episode_list):
                 time_values = episode_dict.get('time')
-                episode_id_val = episode_dict.get('episode', [f'ep_idx_{i}'])[0];
+                episode_id_val = episode_dict.get('episode', [f'ep_idx_{i}'])[0]
                 if not isinstance(time_values, list) or not time_values: continue
                 num_steps = len(time_values); ref_index = pd.RangeIndex(num_steps)
                 temp_data = {'time': pd.Series(time_values, index=ref_index)}
                 for metric, values in episode_dict.items():
                     if metric == 'time': continue
                     if isinstance(values, list):
-                        s = pd.Series(index=ref_index, dtype=object); valid_len = min(len(values), num_steps); s.iloc[:valid_len] = values[:valid_len]; temp_data[metric] = s
+                        s = pd.Series(index=ref_index, dtype=object); valid_len = min(len(values), num_steps)
+                        s.iloc[:valid_len] = values[:valid_len]
+                        temp_data[metric] = s
                     elif values is not None: temp_data[metric] = pd.Series([values] * num_steps, index=ref_index)
                 try: episode_df = pd.DataFrame(temp_data); episode_df['episode'] = episode_id_val; all_aligned_data.append(episode_df)
                 except Exception as e_df: logger.error(f"Error en DataFrame ep {episode_id_val}: {e_df}")
@@ -418,7 +421,9 @@ class MatplotlibPlotGenerator(PlotGenerator):
         except Exception as e: # Capturar cualquier otro error inesperado
             logger.error(f"Error inesperado generando plot ({log_name_ref}): {e}", exc_info=True)
         finally:
-            # 2.7: Asegurar que la figura se cierre siempre
+            # 2.7: Asegurar limpieza de datos y que la figura se cierre siempre
+            if 'data_loaded' in locals() and data_loaded is not None:
+                del data_loaded
             plt.close(fig)
 
     # --- Métodos Privados para cada tipo de Plot ---
@@ -559,37 +564,75 @@ class MatplotlibPlotGenerator(PlotGenerator):
             return # No se puede plotear
 
 
-        cmap_name = style_config.get('cmap', 'tab10')
-        try: cmap = plt.get_cmap(cmap_name)
-        except ValueError: 
-            cmap_name = 'tab10'
-            cmap = plt.get_cmap(cmap_name)
-            logger.warning(f"Colormap '{cmap_name}' no válido para bar plot '{plot_name}', usando 'tab10'.")
-
+        legend_var_cfg = style_config.get("legend_var")
+        custom_color_map, custom_label_map = {}, {}
+        if isinstance(legend_var_cfg, list):
+            for entry in legend_var_cfg:
+                v = entry.get("value")
+                if not v:
+                    continue
+                c = entry.get("color")
+                l = entry.get("label")
+                if c:
+                    custom_color_map[v] = c
+                if l:
+                    custom_label_map[v] = l
+        
         # Plotear barras
-        if isinstance(counts, pd.DataFrame): # Stacked bar
-            num_colors = len(counts.columns)
-            colors = [cmap(i % cmap.N) for i in range(num_colors)] if cmap else None
-            counts.plot(kind='bar', stacked=True, ax=ax,
-                        width=style_config.get('bar_width', 0.8),
-                        color=colors)
-            # 3.7: Forzar que se muestre la leyenda para barras apiladas
+        if isinstance(counts, pd.DataFrame):  # Stacked bar
+            # 1) DataFrame con etiquetas de leyenda renombradas
+            counts_to_plot = counts.copy()
+            if custom_label_map:
+                counts_to_plot.columns = [custom_label_map.get(col, col) for col in counts.columns]
+
+            # 2) Colores alineados al orden original de columnas
+            if custom_color_map:
+                colors = [custom_color_map.get(col, None) for col in counts.columns]
+            else:
+                cmap_name = style_config.get('cmap', 'tab10')
+                try:
+                    cmap = plt.get_cmap(cmap_name)
+                except ValueError:
+                    cmap = plt.get_cmap('tab10')
+                colors = [cmap(i % cmap.N) for i in range(len(counts.columns))]
+
+            counts_to_plot.plot(kind='bar', stacked=True, ax=ax,
+                                width=style_config.get('bar_width', 0.8),
+                                color=colors)
+
+            # Forzar leyenda para stacked
             plot_config_data['config']['show_legend'] = True
-            # Etiquetar grupos X si se agruparon episodios
+
+            # Etiquetas X si hay agrupación
             if group_size:
                 try:
                     ax.set_xticklabels([f"{int(i)}-{int(i+group_size-1)}" for i in counts.index])
-                except ValueError: # Si el índice no es numérico por alguna razón
+                except ValueError:
                     ax.set_xticklabels(counts.index)
-            else: # Si no se agruparon, las etiquetas son las categorías
+            else:
                 ax.set_xticklabels(counts.index)
-        else: # Simple bar
-            colors = [cmap(i % cmap.N) for i in range(len(counts))] if cmap else None
-            counts.plot(kind='bar', ax=ax,
-                        width=style_config.get('bar_width', 0.8),
-                        color=colors)
-            # Las etiquetas X ya son las categorías (índice de counts)
-            ax.set_xticklabels(counts.index)
+
+        else:  # Simple bar
+            # 1) Serie con etiquetas renombradas
+            counts_to_plot = counts.copy()
+            if custom_label_map:
+                counts_to_plot.index = [custom_label_map.get(idx, idx) for idx in counts.index]
+
+            # 2) Colores
+            if custom_color_map:
+                colors = [custom_color_map.get(idx, None) for idx in counts.index]
+            else:
+                cmap_name = style_config.get('cmap', 'tab10')
+                try:
+                    cmap = plt.get_cmap(cmap_name)
+                except ValueError:
+                    cmap = plt.get_cmap('tab10')
+                colors = [cmap(i % cmap.N) for i in range(len(counts))]
+
+            counts_to_plot.plot(kind='bar', ax=ax,
+                                width=style_config.get('bar_width', 0.8),
+                                color=colors)
+            ax.set_xticklabels(counts_to_plot.index)
 
     def _generate_heatmap_plot(self, ax: plt.Axes, fig: plt.Figure, plot_config_data: Dict, output_root_path_plot: str):
         """Genera un gráfico de heatmap. Usa extent y aplica límites estrictos."""

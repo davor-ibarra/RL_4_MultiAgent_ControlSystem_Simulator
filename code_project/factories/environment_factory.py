@@ -26,7 +26,7 @@ class EnvironmentFactory:
                            # Estos son los argumentos que el constructor de PendulumEnvironment espera.
                            # Son resueltos por el DI y pasados a esta factoría.
                            system: Any, # DynamicSystem
-                           controller: Any, # Controller
+                           controllers: Dict[str, Controller], # Controller
                            agent: Any, # RLAgent
                            reward_function: Any, # RewardFunction
                            stability_calculator: Any, # BaseStabilityCalculator (NUEVO)
@@ -46,7 +46,7 @@ class EnvironmentFactory:
         # Pasar todas las dependencias y la config completa.
         return creator(
             system=system,
-            controller=controller,
+            controllers=controllers,
             agent=agent,
             reward_function=reward_function,
             stability_calculator=stability_calculator, # <<< PASAR EL STABILITY CALCULATOR AL CONSTRUCTOR

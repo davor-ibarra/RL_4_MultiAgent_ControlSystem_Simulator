@@ -1,175 +1,331 @@
 # components/rewards/instantaneous_reward_calculator.py
 import numpy as np
-import pandas as pd # Para pd.notna/isna
+import pandas as pd
 import math
 import logging
-from typing import Tuple, Any, Dict
+from typing import Any, Dict
 from interfaces.reward_function import RewardFunction
 from interfaces.stability_calculator import BaseStabilityCalculator
 
 logger = logging.getLogger(__name__)
 
 class InstantaneousRewardCalculator(RewardFunction):
+    """
+    Calculates the instantaneous reward based on a declarative configuration.
+    It is self-configuring from the global config and operates on a contextual
+    state dictionary provided by the environment.
+    The calculate() method acts as an orchestrator for different reward components.
+    """
     def __init__(self,
-                 reward_setup_config: Dict[str, Any], # Recibe toda la sección reward_setup
-                 stability_calculator: BaseStabilityCalculator # Inyección del StabilityCalculator
+                 config: Dict[str, Any],
+                 stability_calculator: BaseStabilityCalculator
                  ):
-        self.calculation_config_data = reward_setup_config.get('calculation', {})
-        self.reward_method = self.calculation_config_data.get('method')
-        logger.info(f"[InstantRewardCalc] Initializing. Method: {self.reward_method}")
+        logger.info("[InstantRewardCalc] Initializing...")
         
-        self.stability_calc_instance = stability_calculator # Almacenarla
+        try:
+            reward_setup = config['environment']['reward_setup']
+        except KeyError as e:
+            raise KeyError(f"InstantaneousRewardCalculator: Missing required configuration path: {e}")
 
-        # --- Type of Reward Configuración ---
-        if self.reward_method == 'stability_measure_based':
-            if not hasattr(self.stability_calc_instance, 'calculate_stability_based_reward'):
-                raise AttributeError(f"Provided StabilityCalculator for 'stability_measure_based' reward is missing 'calculate_stability_based_reward' method.")
+        self.stability_calc_instance = stability_calculator
+        self.log_reward_params: Dict[str, float] = {}
 
-        if self.reward_method == 'weighted_exponential':
-            weighted_exp_cfg = self.calculation_config_data.get('weighted_exponential_params', {})
-            self.feature_weights = weighted_exp_cfg.get('feature_weights', {})
-            self.feature_scales = weighted_exp_cfg.get('feature_scales', {})
-            # Mapeo fijo para el péndulo. Podría ser configurable.
-            self.sys_state_indices_map = {'cart_position': 0, 'cart_velocity': 1, 'angle': 2, 'angular_velocity': 3}
-            logger.debug(f"[InstantRewardCalc] WeightedExp Params: Weights={self.feature_weights}, Scales={self.feature_scales}")
+        # --- Cargar todas las configuraciones --- ### NUEVO ###
+        self._init_base_calculation(reward_setup)
+        self._init_penalties_and_bonuses(reward_setup)
+        self._init_conditional_rewards(reward_setup)
         
-        # --- Penalty Configuración ---
-        penalty_cfg = reward_setup_config.get('penalty_instantaneous_reward', {})
-        self.penalty_enabled = bool(penalty_cfg.get('enabled', False))
-        self.penalty_method = penalty_cfg.get('method')
-        self.penalty_type = penalty_cfg.get('type')
-        self.penalty_value_coeff = 0.0
-        if self.penalty_enabled and self.penalty_method == 'lineal' and self.penalty_type == 'fixed':
-            lineal_params = penalty_cfg.get('penalty_lineal_params', {})
-            self.penalty_value_coeff = float(lineal_params.get('time', 0.2))
+        # --- Variables de estado internas ---
+        self.bandwidth_cumulative_bonus = 0.0
+        self.last_action_a = 0.0
+
+        logger.info(f"[InstantRewardCalc] Initialization complete.")
+
+    ### NUEVO: Métodos de inicialización para limpieza de código ###
+    def _init_base_calculation(self, reward_setup: Dict):
+        """Initializes the main reward calculation method."""
+        self.cfg_base = reward_setup.get('calculation', {})
+        self.reward_method = self.cfg_base.get('method')
         
-        # --- Goal Bonus Reward Configuration---
-        goal_bonus_cfg = reward_setup_config.get('goal_bonus_reward', {})
-        self.goal_bonus_enabled = bool(goal_bonus_cfg.get('enabled', False))
-        self.goal_bonus_type = goal_bonus_cfg.get('type', 'static')  # "static" | "decay"
-        # Estático
-        self.goal_bonus_static_value = float(goal_bonus_cfg.get('static_value', 0.0))
-        # Decay
-        self.goal_bonus_decay_type = goal_bonus_cfg.get('decay_type', 'exponential')  # "exponential" | "linear" | "none"
-        self.goal_bonus_base_value = float(goal_bonus_cfg.get('base_value', 0.0))
-        self.goal_bonus_decay_tau = float(goal_bonus_cfg.get('decay_time_constant', 1.0))
-        self.goal_bonus_min_value = float(goal_bonus_cfg.get('min_value', 0.0))
-        # Approach Bonus
-        approach_cfg = goal_bonus_cfg.get('approach_bonus', {})
-        self.approach_bonus_enabled = bool(approach_cfg.get('enabled', False))
-        self.approach_angle_range = float(approach_cfg.get('angle_range', 0.05))
-        self.approach_angvel_range = float(approach_cfg.get('angular_velocity_range', 0.4))
-        self.approach_cart_position_range = float(approach_cfg.get('cart_position_range', 0.1))
-        self.approach_cart_velocity_range = float(approach_cfg.get('cart_velocity_range', 0.2))
-        self.approach_per_step_bonus = float(approach_cfg.get('per_step_bonus', 0.0))
-        self.approach_max_total_bonus = approach_cfg.get('max_total_bonus', None)
-        self.approach_max_total_bonus = float(self.approach_max_total_bonus) if self.approach_max_total_bonus is not None else None
+    def _init_penalties_and_bonuses(self, reward_setup: Dict):
+        """Initializes fixed penalties and bonuses."""
+        # --- Penalty Configuration ---
+        self.cfg_penalty = reward_setup.get('penalty_approach', {}).get('penalty_instantaneous_reward', {})
+        self.penalty_enabled = self.cfg_penalty.get('enabled', False)
 
-        # Estado interno: sólo para el approach_bonus
-        self._approach_cumulative_bonus = 0.0
+        # --- Delta Var Penalty Configuration ---
+        self.cfg_delta_penalty = reward_setup.get('penalty_approach', {}).get('penalty_delta_var', {})
+        self.delta_penalty_enabled = self.cfg_delta_penalty.get('enabled', False)
 
-        logger.info(f"[InstantRewardCalc] GoalBonus: enabled={self.goal_bonus_enabled}, type={self.goal_bonus_type}, static={self.goal_bonus_static_value}, decay={self.goal_bonus_decay_type}, base={self.goal_bonus_base_value}, tau={self.goal_bonus_decay_tau}, min={self.goal_bonus_min_value}")
+        # --- Bonus Configuration ---
+        bonus_cfg = reward_setup.get('bonus_approach', {})
+        self.cfg_goal_bonus = bonus_cfg.get('goal_bonus_reward', {})
+        self.goal_bonus_enabled = self.cfg_goal_bonus.get('enabled', False)
+        
+        self.cfg_bw_bonus = bonus_cfg.get('bandwidth_bonus', {})
+        self.bw_bonus_enabled = self.cfg_bw_bonus.get('enabled', False)
 
-        logger.info(f"[InstantRewardCalc] Initialized. PenaltyEnabled: {self.penalty_enabled}, BonusEnabled: {self.goal_bonus_enabled}")
+    def _init_conditional_rewards(self, reward_setup: Dict):
+        """Initializes conditional and dynamic reward components."""
+        cond_cfg = reward_setup.get('conditional_approach', {})
+        # --- Dynamic Penalty ---
+        self.cfg_dp = cond_cfg.get('dynamic_penalty', {})
+        self.dp_enabled = self.cfg_dp.get('enabled', False)
+        self.dp_method = self.cfg_dp.get('method')
+        self.dp_params = self.cfg_dp.get('dynamic_penalty_params', {})
 
-        logger.info("[InstantRewardCalc] Initialization complete.")
+        # --- Dynamic Incentive ---
+        self.cfg_di = cond_cfg.get('dynamic_incentive', {})
+        self.di_enabled = self.cfg_di.get('enabled', False)
+        self.di_method = self.cfg_di.get('method')
+        self.di_lineal_params = self.cfg_di.get('dynamic_incentive_lineal_params', {})
+        self.di_tanh_params = self.cfg_di.get('dynamic_incentive_adapt_params', {})
 
+    ### MODIFICADO: calculate() ahora es un orquestador ###
     def calculate(self, 
-                  state_s: Any,
+                  state_dict: Dict[str, Any],
                   action_a: Any,
-                  next_state_s_prime: Any, 
+                  next_state_dict: Dict[str, Any], 
                   current_episode_time_sec: float,
                   dt_sec: float,
                   goal_reached_in_step: bool
                   ) -> float:
-        """
-        Calcula la recompensa total considerando:
-        - Recompensa base (según método configurado)
-        - Penalización temporal
-        - Bono de meta (goal_bonus) según modo (estático o decaimiento)
-        - Bono por tiempo dentro de la zona ampliada ("approach bonus")
-        """
-        # 1. Calcular el valor de la recompensa (calculated_reward_value)
-        if self.reward_method == 'weighted_exponential':
-            action_val_float = float(action_a)
-            reward_terms_list = []
-            for feat_name, feat_idx in self.sys_state_indices_map.items():
-                # Si feat_name no está en feature_weights o feature_scales, ocurrirá KeyError (error de config).
-                weight = self.feature_weights.get(feat_name, 0.0)
-                val_s_prime = next_state_s_prime[feat_idx]
-                scale = self.feature_scales.get(feat_name, 1.0)
-                if scale == 0.0: 
-                    scale = 1.0
-                if not (pd.notna(val_s_prime) and np.isfinite(val_s_prime)):
-                    reward_terms_list.append(0.0)
-                    continue
-                exp_arg_val = (val_s_prime / scale)**2
-                term_val = weight * math.exp(-exp_arg_val) # Limitar exp_arg?? min(exp_arg_val, 700.0)
-                reward_terms_list.append(term_val)
-            # Force Gaussian Reward
-            force_weight = self.feature_weights.get('force', 0.0)
-            force_scale = self.feature_scales.get('force', 1.0)
-            if force_scale == 0: 
-                force_scale = 1.0
-            exp_arg_force_val = (action_val_float / force_scale)**2
-            reward_terms_list.append(force_weight * math.exp(-exp_arg_force_val))
-            # Time Gaussian Reward
-            time_weight_exp = self.feature_weights.get('time', 0.0)
-            time_scale_exp = self.feature_scales.get('time', 1.0)
-            if time_scale_exp == 0: 
-                time_scale_exp = 1.0
-            exp_arg_time_val_exp = (float(current_episode_time_sec) / time_scale_exp)**2
-            reward_terms_list.append(time_weight_exp * math.exp(-exp_arg_time_val_exp))
+        
+        self.log_reward_params.clear()
+        reward_terms = []
+
+        # 1. Recompensa base (cálculo principal)
+        reward_terms.append(self._calculate_base_reward(next_state_dict, action_a))
+
+        #if next_state_dict['cart_position'] > 0.0:
+        
+        # 2. Incentivo dinámico (shaping condicional)
+        reward_terms.append(self._calculate_dynamic_incentive(next_state_dict))
+
+        # 3. Penalización dinámica (esfuerzo condicional)
+        reward_terms.append(self._calculate_dynamic_penalty(next_state_dict, action_a))
+
+        # 4. Penalización por tiempo fija
+        reward_terms.append(self._calculate_fixed_penalty(current_episode_time_sec, dt_sec))
+
+        # 5. Penalización por variación excesiva
+        reward_terms.append(self._calculate_delta_var_penalty(action_a))
+        
+        # Suma de todos los componentes de recompensa por paso
+        total_reward = float(np.nansum(reward_terms))
+
+        # 6. Bonos de evento (aditivos sobre el total)
+        total_reward += self._calculate_goal_bonus(current_episode_time_sec, goal_reached_in_step)
+        total_reward += self._calculate_bandwidth_bonus(next_state_dict)
             
-            base_calculated_reward = float(np.nansum(reward_terms_list)) # nansum para manejar posibles NaNs de math.exp
+        return total_reward
+
+    ### NUEVO: Métodos de cálculo desacoplados ###
+    
+    def _calculate_base_reward(self, next_state_dict: Dict, action_a: Any) -> float:
+        """Calculates the main reward based on the 'calculation' config section."""
+        if self.reward_method == 'weighted_exponential':
+            reward_terms_list = []
+            features_cfg = self.cfg_base.get('weighted_exponential_params', {}).get('features', {})
+            for feat_name, params in features_cfg.items():
+                value = next_state_dict.get(feat_name)
+                if value is None or pd.isna(value) or not np.isfinite(value): continue
+                
+                feat_setpoint = params.get('setpoint', 0.0)
+                value_error = float(value) - feat_setpoint
+                exp_arg_val = (value_error / params.get('scaled', 1.0))**2
+                reward_term = params.get('weight', 0.0) * math.exp(-exp_arg_val)
+                reward_terms_list.append(reward_term)
+                self.log_reward_params[f'reward_base_{feat_name}'] = reward_term
+            return float(np.nansum(reward_terms_list))
 
         elif self.reward_method == 'stability_measure_based':
-            base_calculated_reward = float(self.stability_calc_instance.calculate_stability_based_reward(next_state_s_prime))
-        else:
-            base_calculated_reward = 0.0
+            reward = self.stability_calc_instance.calculate_stability_based_reward(next_state_dict)
+            self.log_reward_params['reward_by_stability'] = reward
+            return reward
+        
+        return 0.0
 
-        final_reward_value = base_calculated_reward
+    def _calculate_dynamic_penalty(self, next_state_dict: Dict, action_a: Any) -> float:
+        """Calculates penalty on a variable, conditional on another system state."""
+        if not self.dp_enabled:
+            return 0.0
+        
+        total_penalty = 0.0
+        for penalized_var, params in self.dp_params.items():
+            # Obtener valor a penalizar
+            penalized_value = action_a if penalized_var == 'control_action' else next_state_dict.get(penalized_var)
+            if penalized_value is None: continue
 
-        # --- 2. Lineal Penalty Reward for time ---
-        final_reward_value += -self.penalty_value_coeff * current_episode_time_sec
-
-        # --- 3. Goal Bonus Reward ---
-        if self.goal_bonus_enabled and goal_reached_in_step:
-            bonus = 0.0
-            if self.goal_bonus_type == "static":
-                bonus = self.goal_bonus_static_value
-            elif self.goal_bonus_type == "decay":
-                if self.goal_bonus_decay_type == "exponential":
-                    bonus = self.goal_bonus_base_value * math.exp(-current_episode_time_sec / max(self.goal_bonus_decay_tau, 1e-8))
-                elif self.goal_bonus_decay_type == "linear":
-                    bonus = self.goal_bonus_base_value * max(0.0, 1.0 - current_episode_time_sec / max(self.goal_bonus_decay_tau, 1e-8))
-                else:  # none
-                    bonus = self.goal_bonus_base_value
-                bonus = max(self.goal_bonus_min_value, min(self.goal_bonus_base_value, bonus))
-            final_reward_value += bonus
-            #logger.debug(f"[InstantReward:Calculation] Goal reached at t={current_episode_time_sec:.3f}s. Goal bonus applied: {bonus:.3f} (type={self.goal_bonus_type}, decay={self.goal_bonus_decay_type})")
-
-        # --- 4. Approach Bonus: por cada paso dentro de la zona ampliada (acumulativo) ---
-        if self.approach_bonus_enabled and self._is_in_approach_band(next_state_s_prime):
-            self._approach_cumulative_bonus += self.approach_per_step_bonus
-            # Tope máximo opcional por episodio
-            if self.approach_max_total_bonus is not None:
-                self._approach_cumulative_bonus = min(self._approach_cumulative_bonus, self.approach_max_total_bonus)
-            final_reward_value += self.approach_per_step_bonus
+            # Calcular la condición
+            cond_params = params.get('condition', {})
+            cond_feature_val = next_state_dict.get(cond_params.get('feature'))
+            if cond_feature_val is None: continue
             
-        return final_reward_value
+            cond_multiplier = 0.0
+            if cond_params.get('type') == 'exp':
+                error = cond_feature_val - cond_params.get('setpoint', 0.0)
+                cond_multiplier = math.exp(-(error / cond_params.get('scaled', 1.0))**2)
+            
+            # Calcular la penalización base
+            base_penalty = 0.0
+            weight = params.get('weight', 0.0)
+            if self.dp_method == 'lineal':
+                base_penalty = -weight * abs(penalized_value)
+            elif self.dp_method == 'quadratic':
+                base_penalty = -weight * (penalized_value**2)
 
+            final_penalty = base_penalty * cond_multiplier
+            total_penalty += final_penalty
+            self.log_reward_params[f'reward_dp_{penalized_var}'] = final_penalty
+            
+        return total_penalty
+
+    def _calculate_dynamic_incentive(self, next_state_dict: Dict) -> float:
+        """Calculates reward for following a dynamic target."""
+        if not self.di_enabled:
+            return 0.0
+
+        total_incentive = 0.0
+        if self.di_method == 'adaptative': # Metodo Tanh
+            for y_var, params in self.di_tanh_params.items():
+                y_val = next_state_dict.get(y_var)
+                x_val = next_state_dict.get(params.get('x'))
+                if y_val is None or x_val is None: continue
+
+                error = params.get('x_sp', 0.0) - x_val
+                target_y_val = params.get('y_max', 0.0) * math.tanh(params.get('strength', 1.0) * error)
+                
+                y_error = y_val - target_y_val
+                
+                f_reward = params.get('f_reward', {})
+                exp_arg = (y_error / f_reward.get('scaled', 1.0))**2
+                incentive = f_reward.get('weight', 0.0) * math.exp(-exp_arg)
+                total_incentive += incentive
+                self.log_reward_params[f'reward_di_tanh_{y_var}'] = incentive
+                self.log_reward_params[f'target_{y_var}'] = target_y_val
+
+        elif self.di_method == 'lineal':
+            for y_var, params in self.di_lineal_params.items():
+                y_val = next_state_dict.get(y_var)
+                x_val = next_state_dict.get(params.get('x'))
+                if y_val is None or x_val is None: continue
+
+                x_max = params.get('x_max', 1.0)
+                y_max = params.get('y_max', 1.0)
+                
+                # Termino 1: Mapea x_val [0, x_max] a [-1, 1]
+                term1 = (2 * x_val / x_max) - 1.0
+                # Termino 2: Normaliza y_val
+                term2 = y_val / y_max
+
+                incentive = params.get('weight', 0.0) * term1 * term2
+                total_incentive += incentive
+                self.log_reward_params[f'reward_di_lineal_{y_var}'] = incentive
+
+        return total_incentive
+
+    def _calculate_fixed_penalty(self, time: float, dt: float) -> float:
+        """Calculates a fixed penalty per time step."""
+        if not self.penalty_enabled:
+            return 0.0
+
+        penalty = 0.0
+        penalty_method = self.cfg_penalty.get('method', 'lineal')
+        if penalty_method == 'lineal':
+            params = self.cfg_penalty.get('penalty_lineal_params', {})
+            penalty = -params.get('time', 0.0) * dt
+        elif penalty_method == 'quadratic':
+            params = self.cfg_penalty.get('penalty_quadratic_params', {})
+            penalty = -params.get('time', 0.0) * time
+            
+        self.log_reward_params['fixed_penalty'] = penalty
+        return penalty
+
+    def _calculate_delta_var_penalty(self, action_a: Any) -> float:
+        """Calculates penalty on the change of a variable from the previous step."""
+        if not self.delta_penalty_enabled:
+            return 0.0
+
+        total_penalty = 0.0
+        method = self.cfg_delta_penalty.get('method', 'quadratic')
+        params = self.cfg_delta_penalty.get('penalty_delta_var_params', {})
+
+        for var_name, var_params in params.items():
+            if var_name == 'delta_control_action':
+                delta_value = action_a - self.last_action_a
+                
+                penalty = 0.0
+                weight = var_params.get('weight', 0.0)
+                if method == 'quadratic':
+                    penalty = -weight * (delta_value ** 2)
+                elif method == 'lineal':
+                    penalty = -weight * abs(delta_value)
+                
+                total_penalty += penalty
+                self.log_reward_params[f'reward_penalty_{var_name}'] = penalty
+        
+        self.last_action_a = action_a
+
+        return total_penalty
+
+    def _calculate_goal_bonus(self, time: float, goal_reached: bool) -> float:
+        """Calculates bonus upon reaching the goal state."""
+        if not self.goal_bonus_enabled or not goal_reached:
+            return 0.0
+            
+        bonus = 0.0
+        bonus_type = self.cfg_goal_bonus.get('type', 'static')
+        if bonus_type == "static":
+            bonus = self.cfg_goal_bonus.get('static_value', 0.0)
+        elif bonus_type == "decay":
+            decay_type = self.cfg_goal_bonus.get('decay_type', 'exponential')
+            base_val = self.cfg_goal_bonus.get('base_value', 0.0)
+            tau = max(self.cfg_goal_bonus.get('decay_time_constant', 1.0), 1e-8)
+
+            if decay_type == "exponential":
+                bonus = base_val * math.exp(-time / tau)
+            elif decay_type == "linear":
+                bonus = base_val * max(0.0, 1.0 - time / tau)
+            
+            bonus = max(self.cfg_goal_bonus.get('min_value', 0.0), bonus)
+        
+        self.log_reward_params['goal_bonus'] = bonus
+        return bonus
+        
+    def _calculate_bandwidth_bonus(self, next_state_dict: Dict) -> float:
+        """Calculates bonus for staying within specific state ranges."""
+        if not self.bw_bonus_enabled:
+            return 0.0
+
+        if self._is_in_bandwidth_ranges(next_state_dict):
+            per_step_band_bonus = self.cfg_bw_bonus.get('per_step_band_bonus', 0.0)
+            max_total_band_bonus = self.cfg_bw_bonus.get('max_total_band_bonus', float('inf'))
+            if self.bandwidth_cumulative_bonus < max_total_band_bonus:
+                self.bandwidth_cumulative_bonus += per_step_band_bonus
+                self.log_reward_params['bandwidth_bonus'] = per_step_band_bonus
+                return per_step_band_bonus
+        return 0.0
+    
+    # --- Métodos de utilidad y de interfaz ---
+    
     def update_calculator_stats(self, episode_metrics_data_dict: Dict, completed_episode_index: int):
-        pass # No es adaptativo (por ahora)
+        pass # Not adaptive
 
     def reset(self):
-        """Llamar desde environment.reset() al inicio de cada episodio."""
-        self._approach_cumulative_bonus = 0.0
+        self.bandwidth_cumulative_bonus = 0.0
+        self.last_action_a = 0.0
     
-    def _is_in_approach_band(self, state: Any) -> bool:
-        """Retorna True si el estado está dentro de la zona ampliada definida."""
-        angle_ok = abs(state[2]) < self.approach_angle_range
-        angvel_ok = abs(state[3]) < self.approach_angvel_range
-        cartpos_ok = abs(state[0]) < self.approach_cart_position_range
-        cartvel_ok = abs(state[1]) < self.approach_cart_velocity_range
-        return angle_ok and angvel_ok and cartpos_ok and cartvel_ok
+    def _is_in_bandwidth_ranges(self, state_dict: Dict[str, Any]) -> bool:
+        ranges = self.cfg_bw_bonus.get('ranges', {})
+        if not ranges: 
+            return False
+        for feat_name, range_list in ranges.items():
+            value = state_dict.get(feat_name)
+            if value is not None:
+                if not (float(range_list[0]) <= float(value) <= float(range_list[1])):
+                    return False
+        return True
+    
+    def get_params_log(self) -> Dict[str, float]:
+        return self.log_reward_params

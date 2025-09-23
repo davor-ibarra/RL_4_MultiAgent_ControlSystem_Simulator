@@ -28,20 +28,17 @@ class PIDQLearningAgent(RLAgent):
     automatically based on the detected mode.
     """
     def __init__(self,
-                 reward_strategy: RewardStrategy,
+                 reward_strategy: Optional[RewardStrategy], # Ahora puede ser None inicialmente
                  state_config: Dict[str, Dict[str, Any]],
                  num_actions: int,
-                 gain_delta: Union[float, Dict[str, float]], # Para logging/referencia
-                 per_gain_delta: bool, # Para logging/referencia
+                 main_config: Dict[str, Any],
                  discount_factor: float = 0.98,
                  epsilon: float = 1.0,
                  epsilon_min: float = 0.1,
                  epsilon_decay: float = 0.99954,
-                 learning_rate: float = 1.0,
-                 learning_rate_min: float = 0.01,
-                 learning_rate_decay: float = 0.999425,
                  use_epsilon_decay: bool = True,
-                 use_learning_rate_decay: bool = True,
+                 learning_rate_mode: str = 'adaptative',
+                 learning_rate_params: dict = {},
                  q_init_value: float = 0.0,
                  visit_init_value: int = 0,
                  aux_table_init_values: Optional[Dict[str, float]] = None,
@@ -53,17 +50,6 @@ class PIDQLearningAgent(RLAgent):
         self._reward_strategy_instance = reward_strategy
         self.state_config = self._validate_and_prepare_state_config_structure(state_config)
         self.base_num_actions = int(num_actions)
-        self.gain_delta_ref = gain_delta
-        self.per_gain_delta_ref = per_gain_delta
-        self.discount_factor = float(discount_factor)
-        self._initial_epsilon, self._current_epsilon = float(epsilon), float(epsilon)
-        self._epsilon_min, self._epsilon_decay = float(epsilon_min), float(epsilon_decay)
-        self.use_epsilon_decay = bool(use_epsilon_decay)
-        self._initial_learning_rate, self._current_learning_rate = float(learning_rate), float(learning_rate)
-        self._learning_rate_min, self._learning_rate_decay = float(learning_rate_min), float(learning_rate_decay)
-        self.use_learning_rate_decay = bool(use_learning_rate_decay)
-        self.q_init_value, self.visit_init_value = float(q_init_value), int(visit_init_value)
-        self.aux_table_init_values = aux_table_init_values if isinstance(aux_table_init_values, dict) else {}
 
         # --- 2. Mode Detection (Multi-Agent vs. Mono-Agent) ---
         self.agent_defining_vars: List[str] = [
@@ -71,6 +57,21 @@ class PIDQLearningAgent(RLAgent):
         ]
         if not self.agent_defining_vars:
             raise ValueError("[PIDQLearningAgent] No agent enabled in state_config. At least one gain must have 'enabled_agent: true'.")
+
+        self.gain_deltas: Dict[str, float] = {}
+        self._configure_gain_deltas(main_config)
+
+        self.discount_factor = float(discount_factor)
+        self._initial_epsilon, self._current_epsilon = float(epsilon), float(epsilon)
+        self._epsilon_min, self._epsilon_decay = float(epsilon_min), float(epsilon_decay)
+        self.use_epsilon_decay = bool(use_epsilon_decay)
+        self.learning_rate_mode   = str(learning_rate_mode)
+        self.learning_rate_params = dict(learning_rate_params)
+        self._current_learning_rate: float = 0.0
+        self._hybrid_layout_index: int = 0
+        self._initialize_learning_rate_params()
+        self.q_init_value, self.visit_init_value = float(q_init_value), int(visit_init_value)
+        self.aux_table_init_values = aux_table_init_values if isinstance(aux_table_init_values, dict) else {}
         
         self.is_mono_agent_mode = len(self.agent_defining_vars) == 1
         
@@ -87,10 +88,6 @@ class PIDQLearningAgent(RLAgent):
             self.controlled_gains = self.agent_defining_vars
 
         # --- 3. Pre-computation for Performance ---
-        self._bin_centers: Dict[str, np.ndarray] = {}
-        self._n_bins: Dict[str, int] = {}
-        self._bin_step: Dict[str, float] = {}
-        self._bin_min: Dict[str, float] = {}
         self._precompute_discretization_bins()
 
         # --- 4. Internal State Initialization ---
@@ -100,7 +97,6 @@ class PIDQLearningAgent(RLAgent):
         self.aux_tables: Dict[str, Dict[str, np.ndarray]] = {}
         self.aux_visit_counts: Dict[str, Dict[str, np.ndarray]] = {}
         self._last_td_errors: Dict[str, float] = {adv: np.nan for adv in self.agent_defining_vars}
-        self._initialize_tables_and_aux()
 
         # --- 5. Early Termination Setup ---
         self.early_stopping_config = early_stopping_criteria if isinstance(early_stopping_criteria, dict) else {}
@@ -110,6 +106,144 @@ class PIDQLearningAgent(RLAgent):
         logger.info(f"[PIDQLearningAgent] Initialization complete. Agent gains: {self.agent_defining_vars}")
 
     # --- Private Initialization & Helper Methods ---
+    
+    # Setting Learning Rate
+    def _configure_gain_deltas(self, main_config: Dict[str, Any]):
+        """
+        Extrae los parámetros 'gain_delta' para cada ganancia gestionada por el agente
+        buscando en la configuración del controlador correspondiente.
+        """
+        controller_configs = main_config.get('environment', {}).get('controller', {})
+        
+        # Mapear name_objective_var a su configuración de controlador completa
+        objective_to_config_map = {
+            cfg.get('params', {}).get('name_objective_var'): cfg
+            for cfg in controller_configs.values() if isinstance(cfg, dict)
+        }
+
+        # Iterar sobre las ganancias que este agente controla
+        for gain_name in self.agent_defining_vars: # ej. "kp_pendulum_angle"
+            parts = gain_name.split('_')
+            gain_type = parts[0] # "kp"
+            objective_var = "_".join(parts[1:]) # "pendulum_angle"
+            
+            if objective_var in objective_to_config_map:
+                ctrl_cfg = objective_to_config_map[objective_var]
+                pid_adapt_cfg = ctrl_cfg.get('pid_adaptation', {})
+                per_gain_delta = pid_adapt_cfg.get('per_gain_delta', False)
+                gain_delta_config = pid_adapt_cfg.get('gain_delta', 1.0)
+                
+                if per_gain_delta and isinstance(gain_delta_config, dict):
+                    self.gain_deltas[gain_name] = float(gain_delta_config.get(gain_type, 1.0))
+                else:
+                    self.gain_deltas[gain_name] = float(gain_delta_config)
+            else:
+                logger.warning(f"[PIDQLearningAgent] Could not find controller config for objective '{objective_var}' derived from gain '{gain_name}'. Using default gain_delta=1.0.")
+                self.gain_deltas[gain_name] = 1.0
+        
+        logger.info(f"[PIDQLearningAgent] Configured gain deltas: {self.gain_deltas}")
+
+    def _initialize_learning_rate_params(self):
+        """
+        Sets the initial state for learning rate parameters based on the config.
+        Called from __init__ and can be part of the reset logic if needed.
+        """
+        self._current_learning_rate = self.learning_rate_params.get('learning_rate', 0.1)
+        self._hybrid_layout_index = 0
+
+    def _update_learning_rate_for_new_episode(self):
+        """
+        Updates the learning rate state at the end of an episode.
+        Currently only handles 'decay' mode.
+        """
+        adaptative_params = self.learning_rate_params.get('adaptative_params', {})
+        if self.learning_rate_mode == 'adaptative' and adaptative_params.get('type') == 'decay':
+            decay_params = adaptative_params.get('decay_params', {})
+            decay_rate = decay_params.get('learning_rate_decay', 1.0)
+            min_lr = decay_params.get('learning_rate_min', 0.01)
+            self._current_learning_rate = max(min_lr, self._current_learning_rate * decay_rate)
+
+    def _get_fixed_lr(self) -> float:
+        """Returns the fixed learning rate."""
+        return self.learning_rate_params.get('learning_rate', 0.1)
+
+    def _get_adaptative_lr(self, s_indices: tuple, action_idx: int, gain_name: str) -> float:
+        """Calculates LR for 'adaptative' mode ('decay' or 'incremental')."""
+        adaptative_params = self.learning_rate_params.get('adaptative_params', {})
+        adapt_type = adaptative_params.get('type')
+
+        if adapt_type == 'decay':
+            return self._current_learning_rate
+        elif adapt_type == 'incremental':
+            if adaptative_params.get('incremental_params', {}).get('variable', False) == 'visits':
+                visit_count = self.visit_counts[gain_name][s_indices + (action_idx,)]
+                return 1.0 / (visit_count + 1)
+        
+        # Fallback to a default small LR if config is malformed
+        return 0.01
+
+    def _get_hybrid_lr(self, s_indices: tuple, action_idx: int, gain_name: str, episode_idx: int) -> float:
+        """Calculates LR for 'hybrid' mode."""
+        hybrid_params = self.learning_rate_params.get('hybrid_params', {})
+        layouts = hybrid_params.get('layouts', ['fixed'])
+        variable = hybrid_params.get('variable', 'episodes')
+        thresholds = hybrid_params.get('threshold', [100])
+        
+        # Determine the value to check against the threshold
+        check_value = 0
+        if variable == 'visits':
+            visit_count = self.visit_counts[gain_name][s_indices + (action_idx,)]
+            check_value = visit_count
+        elif variable == 'episodes':
+            check_value = episode_idx
+            
+        # Update the layout index based on thresholds
+        # This logic advances the index if the check_value surpasses the current threshold
+        if self._hybrid_layout_index < len(thresholds) and check_value >= thresholds[self._hybrid_layout_index]:
+            self._hybrid_layout_index += 1
+            
+        # Ensure the index is within the bounds of the layouts list
+        current_layout_index = min(self._hybrid_layout_index, len(layouts) - 1)
+        active_layout = layouts[current_layout_index]
+
+        # Call the appropriate LR calculation method based on the active layout
+        if active_layout == 'fixed':
+            return self._get_fixed_lr()
+        elif active_layout == 'decay':
+            # In hybrid mode, 'decay' implies using the current decayed value
+            return self._current_learning_rate
+        elif active_layout == 'incremental':
+            # Re-use the logic from adaptative for 'incremental'
+            if variable == 'visits':
+                return 1.0 / (visit_count + 1)
+            elif variable == 'episodes':
+                pass
+            
+        return self.learning_rate_params.get('learning_rate', 0.1) # Fallback
+
+    def _calculate_learning_rate(self, gain_name: str, s_indices: tuple, action_idx: int, episode_idx: int) -> float:
+        """
+        Unified entry point to calculate the learning rate (alpha) based on the
+        configured mode.
+        """
+        if self.learning_rate_mode == 'fixed':
+            return self._get_fixed_lr()
+        elif self.learning_rate_mode == 'adaptative':
+            return self._get_adaptative_lr(s_indices, action_idx, gain_name)
+        elif self.learning_rate_mode == 'hybrid':
+            return self._get_hybrid_lr(s_indices, action_idx, gain_name, episode_idx)
+        
+        # Fallback for an unknown mode
+        return 0.01
+
+    def set_reward_strategy(self, strategy: RewardStrategy):
+        """Implementación para la inyección tardía de la estrategia de recompensa."""
+        if self._reward_strategy_instance is not None:
+            logger.warning(f"[PIDQLearningAgent] Overwriting existing reward strategy.")
+        self._reward_strategy_instance = strategy
+        # Una vez que la estrategia está establecida, se pueden inicializar las tablas que dependen de ella.
+        logger.info(f"[PIDQLearningAgent] RewardStrategy set to {type(strategy).__name__}. Initializing dependent tables.")
+        self._initialize_tables_and_aux()
 
     def _validate_and_prepare_state_config_structure(self, config_to_val: Dict) -> Dict:
         """Valida la estructura básica de state_config. Lanza error si es inválida."""
@@ -134,23 +268,20 @@ class PIDQLearningAgent(RLAgent):
         Pre-calcula los valores discretos exactos que podrá tomar cada variable
         (incluyendo los extremos min y max).
         """
-        self._bin_centers.clear()
-        self._n_bins.clear()
-        self._bin_step.clear()
-        self._bin_min.clear()
+        self._bin_centers: Dict[str, np.ndarray] = {}
+        self._n_bins: Dict[str, int] = {}
+        self._bin_step: Dict[str, float] = {}
+        self._bin_min: Dict[str, float] = {}
         for var_name, cfg in self.state_config.items():
-            n_bins  = cfg['bins']
-            v_min   = cfg['min']
-            v_max   = cfg['max']
             # Centros que INCLUYEN los extremos
-            centers = np.linspace(v_min, v_max, n_bins, dtype=np.float64)
+            centers = np.linspace(cfg['min'], cfg['max'], cfg['bins'], dtype=np.float64)
             # Paso constante
-            step = centers[1] - centers[0] if n_bins > 1 else 0.0
+            step = centers[1] - centers[0] if cfg['bins'] > 1 else 0.0
             # Guarda en los diccionarios
             self._bin_centers[var_name] = centers
-            self._n_bins[var_name]      = n_bins
+            self._n_bins[var_name]      = cfg['bins']
             self._bin_step[var_name]    = step
-            self._bin_min[var_name]     = v_min
+            self._bin_min[var_name]     = cfg['min']
     
     def _determine_controlled_gains(self, master_gain: str) -> List[str]:
         gain_config = self.state_config.get(master_gain, {})
@@ -163,13 +294,16 @@ class PIDQLearningAgent(RLAgent):
     def _create_mono_agent_action_map(self) -> Dict[int, Dict[str, int]]:
         action_ranges = [range(self.base_num_actions)] * len(self.controlled_gains)
         combined_actions = list(itertools.product(*action_ranges))
-        mono_map_dict = {i: {gain: action for gain, action in zip(self.controlled_gains, actions_tuple)} for i, actions_tuple in enumerate(combined_actions)}
+        mono_map_dict = {i: {f'action_{gain}': action for gain, action in zip(self.controlled_gains, actions_tuple)} for i, actions_tuple in enumerate(combined_actions)}
         return mono_map_dict
 
     def _initialize_tables_and_aux(self):
         """Inicializa Q-tables, N-tables, y tablas auxiliares requeridas por la estrategia."""
         logger.debug("[PIDQAgent:_initialize_tables_and_aux] Initializing all agent tables...")
         # Preparar contenedores para tablas auxiliares
+        if self.reward_strategy is None:
+            logger.warning("[PIDQAgent:_initialize_tables_and_aux] Attempted to initialize tables but reward strategy is not set. Aborting.")
+            return
         for aux_name_req in self.reward_strategy.required_auxiliary_tables:
             self.aux_tables[aux_name_req] = {}
             self.aux_visit_counts[f"{aux_name_req}_visits"] = {}
@@ -323,8 +457,30 @@ class PIDQLearningAgent(RLAgent):
 
     # --- Métodos de la Interfaz RLAgent ---
 
+    def build_agent_state(self, env_state_dict: Dict[str, Any], controllers: Dict[str, Controller]) -> Dict[str, Any]:
+        """
+        Constructs the agent's state by merging env state and gains from all controllers.
+        """
+        agent_s_dict = {}
+        # Combinar las ganancias de todos los controladores en un solo diccionario
+        all_controller_gains = {}
+        if isinstance(controllers, dict): # Asegurarse de que es un diccionario
+            for ctrl in controllers.values():
+                if hasattr(ctrl, 'get_params'):
+                    all_controller_gains.update(ctrl.get_params())
+        
+        # Iterar sobre TODAS las variables que el agente podría necesitar
+        for var_name in self.state_config.keys():
+            if var_name in env_state_dict:
+                agent_s_dict[var_name] = env_state_dict[var_name]
+            elif var_name in all_controller_gains:
+                agent_s_dict[var_name] = all_controller_gains[var_name]
+        
+        return agent_s_dict
+    
     def select_action(self, current_agent_state_values: Dict[str, Any]) -> Dict[str, int]:
         perform_exploration = np.random.rand() < self._current_epsilon
+        actions_map: Dict[str, int] = {}
 
         if self.is_mono_agent_mode: # Mono-Agent Mode
             master_gain = self.mono_agent_master_gain
@@ -341,9 +497,8 @@ class PIDQLearningAgent(RLAgent):
                     best_actions = np.where(np.isclose(q_values, max_q))[0]
                     action_idx = int(np.random.choice(best_actions))
             # logger.debug(f"[PIDQAgent:select_action] Epsilon={self._current_epsilon:.3f}, Explore={perform_exploration}, Actions={action_idx}")
-            return self._action_map[action_idx]
+            return self._action_map[action_idx] # ya es dict
         else: # Multi-Agent Mode
-            actions_map: Dict[str, int] = {}
             for gain in self.agent_defining_vars:
                 state_indices = self._get_discrete_state_indices_tuple(current_agent_state_values, gain)
                 action_idx: int
@@ -357,44 +512,58 @@ class PIDQLearningAgent(RLAgent):
                     else:
                         best_actions = np.where(np.isclose(q_values, max_q))[0]
                         action_idx = int(np.random.choice(best_actions))
-                actions_map[gain] = action_idx
+                actions_map[f'action_{gain}'] = action_idx
                 # logger.debug(f"[PIDQAgent:select_action] Epsilon={self._current_epsilon:.3f}, Explore={perform_exploration}, Actions={actions_map}")
             return actions_map
 
     def learn(self,
-              current_agent_s_dict: Dict[str, Any], # S
-              taken_actions_map: Dict[str, int],    # A
-              interval_reward_information: float,
-              interval_stability_information: float,
-              next_agent_s_prime_dict: Dict[str, Any],   # S'
-              current_controller_instance: Controller,
-              is_episode_done: bool # Flag de terminación del entorno
-             ):
+              current_agent_s_dict: Dict[str, Any],     # S
+              taken_actions_map: Dict[str, int],        # A
+              reward_info: Dict[str, float],
+              next_agent_s_prime_dict: Dict[str, Any],  # S'
+              controllers: Dict[str, Controller],
+              is_episode_done: bool,                    # Flag de terminación del entorno
+              episode_idx: int
+             ) -> Dict[str, float]:
+        if self.reward_strategy is None:
+            logger.error("[PIDQLearningAgent] Cannot learn without a reward strategy.")
+            return {}
+        
         self._last_td_errors.clear()
-        real_reward_interval = float(interval_reward_information)
-        avg_stability_interval = float(interval_stability_information)
+        learning_metrics = {} # Diccionario para devolver
+
+        real_reward_interval = reward_info.get('interval_reward', 0.0)
+        avg_stability_interval = reward_info.get('avg_stability_score_interval', 1.0)
+        differential_rewards = reward_info.get('differential_rewards')
 
         for gain_name in self.agent_defining_vars:
             s_indices = self._get_discrete_state_indices_tuple(current_agent_s_dict, gain_name)
             s_prime_indices = self._get_discrete_state_indices_tuple(next_agent_s_prime_dict, gain_name)
 
             if self.is_mono_agent_mode:
-                actions_tuple = tuple(taken_actions_map[g] for g in self.controlled_gains)
+                actions_tuple = tuple(taken_actions_map[f'action_{g}'] for g in self.controlled_gains)
                 try:
                     action_idx = next(idx for idx, mapping in self._action_map.items() if tuple(mapping.values()) == actions_tuple)
                 except StopIteration: continue
             else:
-                action_idx = taken_actions_map.get(gain_name)
-            #if s_indices is None or action_idx is None: continue # No se puede aprender sin S o A, pero no debería ser
+                action_idx = taken_actions_map.get(f'action_{gain_name}')
+            
+            if s_indices is None or action_idx is None: 
+                continue # No se puede aprender sin S o A, pero no debería ser
+            
             # 1. Calcular R_learn usando la RewardStrategy
             r_learn = self.reward_strategy.compute_reward_for_learning(
-                gain_id=gain_name, agent_instance=self, controller_instance=current_controller_instance,
+                gain_id=gain_name, agent_instance=self, controllers_dict=controllers,
                 current_agent_s_dict=current_agent_s_dict, current_s_indices=s_indices,
                 actions_taken_map=taken_actions_map, action_idx_for_gain=action_idx,
                 real_interval_reward=real_reward_interval,
                 avg_interval_stability_score=avg_stability_interval,
-                differential_rewards_map=None
+                differential_rewards_map=differential_rewards
             )
+
+            # Guardar r_learn para logging
+            learning_metrics[f'r_learn_{gain_name}'] = r_learn
+
             # 2. Aplicar lógica de Early Termination (puede modificar r_learn_from_strategy y determinar 'done' para este agente)
             effective_done = is_episode_done
             if self._early_termination_enabled_flag:
@@ -405,6 +574,7 @@ class PIDQLearningAgent(RLAgent):
                     r_learn = self._apply_et_reward_penalty(gain_name, metric_val, r_learn)
                 if self._et_requested_flags[gain_name]:
                     effective_done = True # Si el agente pide terminar, es 'done' para Q-update
+            
             # 3. Actualización Q-Learning
             q_table = self.q_tables[gain_name]
             current_q = q_table[s_indices + (action_idx,)]
@@ -413,21 +583,32 @@ class PIDQLearningAgent(RLAgent):
                 q_values_s_prime = q_table[s_prime_indices]
                 if not np.all(np.isnan(q_values_s_prime)):
                     max_q_next = np.nanmax(q_values_s_prime)
-            # Bellman equation or last reward for update learn
+
+            # Bellman equation or last reward in case of early termination
             td_target = r_learn + self.discount_factor * max_q_next if not effective_done else r_learn
             td_error = td_target - current_q
             self._last_td_errors[gain_name] = float(td_error)
-            new_q = current_q + self._current_learning_rate * td_error
+            learning_metrics[f'td_error_{gain_name}'] = float(td_error) # Guardar td_error para logging
+
+            # Cálculo de alpha
+            alpha = self._calculate_learning_rate(gain_name, s_indices, action_idx, episode_idx)
+            # Actualización incremental sin sesgo
+            new_q = current_q + alpha * td_error
+
+            #new_q = current_q + self._current_learning_rate * td_error
+            # Update learn
             if pd.notna(new_q) and np.isfinite(new_q):
                 q_table[s_indices + (action_idx,)] = new_q
             self.visit_counts[gain_name][s_indices + (action_idx,)] += 1
 
+        return learning_metrics
+
     def reset_agent(self):
-        # Decaimiento de Epsilon y Learning Rate
+        # Actualización de Epsilon
         if self.use_epsilon_decay:
             self._current_epsilon = max(self._epsilon_min, self._current_epsilon * self._epsilon_decay)
-        if self.use_learning_rate_decay:
-            self._current_learning_rate = max(self._learning_rate_min, self._current_learning_rate * self._learning_rate_decay)
+        # Actualización de Learning Rate según config
+        self._update_learning_rate_for_new_episode()
         
         self._last_td_errors.clear() # Resetear TD errors
 
@@ -452,54 +633,23 @@ class PIDQLearningAgent(RLAgent):
             # Actualizar el snapshot de ET para el logging del inicio del nuevo episodio
             self._update_et_metrics_snapshot_for_reset()
         # logger.debug(f"[PIDQAgent:reset_agent] Epsilon={self._current_epsilon:.4f}, LR={self._current_learning_rate:.4f}. ET params reset.")
-
-    def build_agent_state(self, system_raw_state_vector: Any, active_controller: Controller, 
-                          agent_state_definition: Dict # Ignorado, usa self.state_config
-                         ) -> Dict[str, Any]:
-        agent_s_dict_output: Dict[str, Any] = {}
-        # Mapeo fijo para el péndulo. Para generalizar, esto debería venir de config o ser parte de DynamicSystem.
-        sys_state_var_indices = {'cart_position': 0, 'cart_velocity': 1, 'angle': 2, 'angular_velocity': 3}
-        controller_current_gains = active_controller.get_params()
-
-        # Iterar sobre TODAS las variables definidas en self.state_config
-        # ya que algunas pueden ser solo parte del estado de otro agente (ej. 'angle' siendo estado para 'kp')
-        for state_var_name_build, var_config_build in self.state_config.items():
-            value_for_this_state_var = np.nan # Default a NaN si no se encuentra
-
-            if state_var_name_build in sys_state_var_indices: # Es una variable del sistema físico
-                sys_var_idx = sys_state_var_indices[state_var_name_build]
-                if isinstance(system_raw_state_vector, (list, tuple, np.ndarray)) and len(system_raw_state_vector) > sys_var_idx:
-                    raw_sys_val = system_raw_state_vector[sys_var_idx]
-                    # Solo asignar si es un número finito
-                    if isinstance(raw_sys_val, (int, float)) and np.isfinite(raw_sys_val):
-                        value_for_this_state_var = float(raw_sys_val)
-            elif state_var_name_build in controller_current_gains: # Es una de las ganancias actuales del controlador
-                controller_gain_val = controller_current_gains[state_var_name_build]
-                if isinstance(controller_gain_val, (int, float)) and np.isfinite(controller_gain_val):
-                    value_for_this_state_var = float(controller_gain_val)
-            
-            # Solo añadir al diccionario de estado si se obtuvo un valor finito
-            if pd.notna(value_for_this_state_var) and np.isfinite(value_for_this_state_var):
-                agent_s_dict_output[state_var_name_build] = value_for_this_state_var
-            # Si no se encuentra valor o es NaN/inf, la clave no se incluye.
-            # La lógica de discretización (_discretize_value) o acceso a Q-table (_get_discrete_state_indices_tuple)
-            # debe ser capaz de manejar claves faltantes si una variable de estado esperada no está.
-            # (Actualmente, _get_discrete_state_indices_tuple devuelve None si falta una clave).
-        
-        # logger.debug(f"[PIDQAgent:build_agent_state] Built state: { {k:f'{v:.3f}' for k,v in agent_s_dict_output.items()} }")
-        return agent_s_dict_output
-        
+    
     # --- Propiedades y Getters de Interfaz (Simplificados) ---
     @property
-    def reward_strategy(self) -> RewardStrategy: return self._reward_strategy_instance
+    def reward_strategy(self) -> RewardStrategy: 
+        return self._reward_strategy_instance
     @property
-    def epsilon(self) -> float: return self._current_epsilon # Usar _current_epsilon
+    def epsilon(self) -> float: 
+        return self._current_epsilon # Usar _current_epsilon
     @property
-    def learning_rate(self) -> float: return self._current_learning_rate # Usar _current_learning_rate
+    def learning_rate(self) -> float: 
+        return self._current_learning_rate # Usar _current_learning_rate
     @property
-    def early_termination_enabled(self) -> bool: return self._early_termination_enabled_flag
+    def early_termination_enabled(self) -> bool: 
+        return self._early_termination_enabled_flag
 
-    def get_agent_defining_vars(self) -> List[str]: return self.agent_defining_vars
+    def get_agent_defining_vars(self) -> List[str]: 
+        return self.agent_defining_vars
     
     def should_episode_terminate_early(self) -> bool:
         if not self._early_termination_enabled_flag: return False
@@ -588,8 +738,20 @@ class PIDQLearningAgent(RLAgent):
             b_map[gain] = val if val is not None else np.nan
         return b_map
     
-    def get_last_td_errors(self) -> Dict[str, float]: 
-        return self._last_td_errors.copy()
-    
     def get_last_early_termination_metrics(self) -> Dict: 
         return getattr(self, '_et_metrics_snapshot', {})
+    
+    def get_params_log(self) -> Dict[str, Any]:
+        """Implements the loggable parameters interface for the agent."""
+        # This method provides the current values for logging at any point in the episode.
+        log_params = {
+            'epsilon': self.epsilon,
+            'learning_rate': self.learning_rate
+        }
+        # Agregar td_errors si existen
+        log_params.update(self._get_last_td_errors())
+        return log_params
+    
+    def _get_last_td_errors(self) -> Dict[str, float]: 
+        return self._last_td_errors.copy()
+    

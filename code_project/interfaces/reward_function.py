@@ -11,24 +11,24 @@ class RewardFunction(ABC):
 
     @abstractmethod
     def calculate(self, 
-                  state_s: Any, 
+                  state_dict: Dict[str, Any], 
                   action_a: Any, 
-                  next_state_s_prime: Any, 
+                  next_state_dict: Dict[str, Any], 
                   current_episode_time_sec: float,
                   dt_sec: float,
                   goal_reached_in_step: bool
                   ) -> float:
         """
         Calculates the instantaneous reward value for the transition from 
-        `state_s` to `next_state_s_prime` given `action_a`.
+        `state_dict` to `next_state_dict` given `action_a`.
 
         The method for calculating the reward value depends on the implementing class's
         configuration and may include penalties or bonuses.
 
         Args:
-            state_s (Any): State before the action.
+            state_dict (Dict[str, Any]): State dictionary before the action.
             action_a (Any): Action taken (e.g., force).
-            next_state_s_prime (Any): Resulting state after action and dt.
+            next_state_dict (Dict[str, Any]): Resulting state dictionary after action and dt.
             current_episode_time_sec (float): Current simulation time within the episode.
             dt_sec (float): The time duration of the current simulation step.
             goal_reached_in_step (bool): Goal reached in step flag.
@@ -59,4 +59,12 @@ class RewardFunction(ABC):
     @abstractmethod
     def reset(self):
         """Resets the reward calculators params to its absolute initial configuration."""
+        pass
+
+    @abstractmethod
+    def get_params_log(self) -> Dict[str, Any]:
+        """
+        Returns a dictionary of reward parameters for logging purposes.
+        This method centralizes the exposure of loggable data.
+        """
         pass

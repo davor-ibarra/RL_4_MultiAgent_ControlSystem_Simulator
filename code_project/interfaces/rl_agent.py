@@ -32,12 +32,12 @@ class RLAgent(ABC):
     @abstractmethod
     def learn(self,
               current_agent_state_dict: Dict[str, Any], # S
-              actions_dict: Dict[str, int],            # A
-              reward_info: Union[float, Tuple[float, float], Dict[str, float]], # R_info
-              next_agent_state_dict: Dict[str, Any],   # S'
-              controller: 'Controller', # Controlador actual para acceso a parámetros o estado si es necesario por la estrategia
-              done: bool                               # Flag de terminación del episodio
-             ):
+              actions_dict: Dict[str, int],             # A
+              reward_info: Dict[str, Any],              # R_info
+              next_agent_state_dict: Dict[str, Any],    # S'
+              controller: 'Controller',                 # Controlador actual para acceso a parámetros o estado si es necesario por la estrategia
+              done: bool                                # Flag de terminación del episodio
+             ) -> Dict[str, float]:                     # Devolverá un dict con métricas de aprendizaje
         """
         Actualiza los conocimientos del agente (e.g., Q-tables, modelos) basado en la
         transición (S, A, R_info, S') y si el episodio ha terminado.
@@ -56,6 +56,9 @@ class RLAgent(ABC):
             next_agent_state_dict (Dict[str, Any]): Estado S' al final del intervalo.
             controller (Controller): La instancia del controlador actual.
             done (bool): True si el episodio terminó después de este intervalo.
+        Returns:
+            Dict[str, float]: Un diccionario con las métricas de aprendizaje generadas,
+                              como {'r_learn_kp': ..., 'td_error_kp': ...}.
         """
         pass
 
@@ -75,7 +78,8 @@ class RLAgent(ABC):
     def build_agent_state(self,
                           raw_state_vector: Any,
                           controller: 'Controller', # Para obtener ganancias actuales si son parte del estado
-                          state_config_for_build: Dict # La sección 'state_config' del agente
+                          state_config_for_build: Dict, # La sección 'state_config' del agente
+                          env_state_dict: Dict[str, Any],
                          ) -> Dict[str, Any]:
         """
         Construye el diccionario de estado del agente (agent_state_dict) a partir del
@@ -86,10 +90,20 @@ class RLAgent(ABC):
             controller (Controller): La instancia del controlador actual, para extraer parámetros como Kp, Ki, Kd si son parte del estado del agente.
             state_config_for_build (Dict): La configuración de estado del agente (usualmente `self.state_config`)
                                            que define qué variables incluir y cómo.
+            env_state_dict (Dict[str, Any]): El diccionario de estado con nombres explícitos
+                                             proporcionado por el entorno (e.g., {'angle': 0.1}).
 
         Returns:
             Dict[str, Any]: El estado del agente como un diccionario de características.
                             Ej: {'angle': 0.05, 'angular_velocity': -0.1, 'kp_value': 25.0}
+        """
+        pass
+
+    @abstractmethod
+    def set_reward_strategy(self, strategy: 'RewardStrategy'):
+        """
+        Establece la estrategia de recompensa para el agente.
+        Este método permite la inyección tardía para romper dependencias circulares.
         """
         pass
 
@@ -172,15 +186,6 @@ class RLAgent(ABC):
         pass
 
     @abstractmethod
-    def get_last_td_errors(self) -> Dict[str, float]:
-        """
-        Devuelve los errores de diferencia temporal (TD errors) calculados en el último
-        paso de `learn()` para cada variable de ganancia (sub-agente).
-        Devuelve NaN si no hay TD error aplicable.
-        """
-        pass
-
-    @abstractmethod
     def get_visit_counts_for_state(self, agent_state_dict: Dict) -> Dict[str, np.ndarray]:
         """
         Para un `agent_state_dict` dado, devuelve los contadores de visita N(S,A)
@@ -226,5 +231,13 @@ class RLAgent(ABC):
         Devuelve una lista de nombres de las tablas auxiliares que el agente
         está gestionando internamente. Esto puede ser usado por las `RewardStrategy`
         para saber con qué tablas pueden interactuar.
+        """
+        pass
+
+    @abstractmethod
+    def get_params_log(self) -> Dict[str, Any]:
+        """
+        Returns a dictionary of agent parameters for logging purposes.
+        This method centralizes the exposure of loggable data.
         """
         pass

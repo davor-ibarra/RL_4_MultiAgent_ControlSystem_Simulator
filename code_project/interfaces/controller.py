@@ -25,16 +25,10 @@ class Controller(ABC):
         pass
 
     @abstractmethod
-    def update_params(self, kp: float, ki: float, kd: float):
+    def update_params(self, new_gains_dict: Dict[str, float]):
         """
-        Updates the internal parameters (gains) of the controller.
-        Specific parameter names (kp, ki, kd) are used assuming PID-like control.
-        A more generic controller might accept a Dict[str, Any].
-
-        Args:
-            kp (float): Proportional gain.
-            ki (float): Integral gain.
-            kd (float): Derivative gain.
+        Updates the controller's parameters from a dictionary of new gains.
+        Each controller implementation is responsible for picking the gains it cares about.
         """
         pass
 
@@ -58,6 +52,14 @@ class Controller(ABC):
 
         Returns:
             Any: The current target value or-configuration.
+        """
+        pass
+
+    @abstractmethod
+    def set_target(self, new_target: Any):
+        """
+        Updates the controller's target or setpoint dynamically.
+        Essential for cascade control structures.
         """
         pass
 
@@ -95,5 +97,13 @@ class Controller(ABC):
                                - "adaptive_components": Resets only learned/adaptive parts.
                                - "to_safe_defaults": Resets to a known safe parameter set.
                                Implementations should define which levels they support.
+        """
+        pass
+
+    @abstractmethod
+    def get_params_log(self) -> Dict[str, Any]:
+        """
+        Returns a dictionary of controller parameters for logging purposes.
+        This method centralizes the exposure of loggable data.
         """
         pass

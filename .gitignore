@@ -1,0 +1,15 @@
+# Carpetas de resultados
+#simulations/
+results_history_CartPole/
+results_history_WaterTank/
+#logs/
+
+# Archivos de salida
+#*.csv
+#*.json
+#*.h5
+#*.pkl
+
+# Archivos temporales
+#*.tmp
+#*.bak
