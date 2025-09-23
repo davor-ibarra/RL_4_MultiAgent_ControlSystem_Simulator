@@ -50,6 +50,8 @@ class QLearning(RLAgent):
         self.success_reward_factor = success_reward_factor
         self.q_table_filename = q_table_filename
 
+    def _discretize_state(next_state_dict, state_config, variables_to_include):
+        pass
 
     def calculate_state_shape(self) -> Tuple[int, ...]:
         shape = []
@@ -107,7 +109,7 @@ class QLearning(RLAgent):
       for var in self.variables_to_include:
         if var in ["kp","ki","kd"]:
           state_dict[var] = state[var]
-      self.current_state = discretize_state(state_dict, self.state_config, self.variables_to_include)
+      self.current_state = self._discretize_state(state_dict, self.state_config, self.variables_to_include)
 
     def decide(self, state: List[float]) -> Dict[str, Any]:
         self.perceive(state)
@@ -129,7 +131,7 @@ class QLearning(RLAgent):
             if var in ["kp","ki","kd"]:
                 next_state_dict[var] = next_state[var] if next_state is not None else self.current_state[self.variables_to_include.index(var)]
 
-        next_state_discrete = discretize_state(next_state_dict, self.state_config, self.variables_to_include) if next_state is not None else self.current_state
+        next_state_discrete = self._discretize_state(next_state_dict, self.state_config, self.variables_to_include) if next_state is not None else self.current_state
         action_taken = np.argmax(self.q_table[self.current_state])
 
         q_current = self.q_table[self.current_state + (action_taken,)]

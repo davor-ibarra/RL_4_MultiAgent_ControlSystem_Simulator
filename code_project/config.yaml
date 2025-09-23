@@ -1,0 +1,123 @@
+environment:
+  type: pendulum_environment
+  dt: 0.001
+  total_time: 5.0
+  decision_interval: 0.01
+  max_episodes: 20000
+  results_folder: 'results_history'
+
+  system:
+    type: inverted_pendulum
+    params:
+      m1: 5.0
+      m2: 1.0
+      l: 2.0
+      g: 9.81
+      cr: 0.0
+      ca: 0.0
+
+  controller:
+    type: pid
+    params:
+      kp: 10.0
+      ki: 0.0
+      kd: 0.0
+      setpoint: 0.0
+
+  agent:
+    type: pid_qlearning
+    params:
+      num_actions: 3  # bajar, mantener, subir
+      discount_factor: 0.98
+      epsilon: 1.0
+      epsilon_decay: 0.999846506108527 #  0.9997122 (8000)| 0.999846506108527 (15000)
+      epsilon_min: 0.1
+      use_epsilon_decay: true
+      learning_rate: 1.0
+      learning_rate_decay: 0.999693035777428 # 0.999425 (8000) | 0.999693035777428 (15000)
+      learning_rate_min: 0.01
+      use_learning_rate_decay: true
+      state_config:
+        # --- Base State Variables ---
+        angle: # Renamed from pendulum_angle for consistency in agent
+          enabled: False
+          min: -0.0349066 # Approx 5 deg
+          max: 0.0349066 # Approx 5 deg
+          bins: 3 # Low, Mid, High
+        angular_velocity: # Renamed from pendulum_velocity
+          enabled: false
+          min: -0.61
+          max: 0.61
+          bins: 6
+        cart_position:
+           enabled: false
+           min: -1.0
+           max: 1.0
+           bins: 3
+        cart_velocity:
+            enabled: false
+            min: -1.0
+            max: 1.0
+            bins: 3
+        # --- Gain State Variables (Part of the state FOR EACH Q-table) ---
+        kp:
+          enabled: true
+          min: 0.0
+          max: 100.0
+          bins: 21
+        ki:
+          enabled: true
+          min: 0.0
+          max: 100.0
+          bins: 21
+        kd:
+          enabled: true
+          min: 0.0
+          max: 100.0
+          bins: 21
+
+  reward:
+    type: gaussian
+    params:
+      weights:
+        stability: 1.0
+        force: 0.5
+        cart: 1.0
+        time: 0.0 #0.5
+      scales:
+        angle: 1.0 #0.035 
+        angular_velocity: 1.0 #0.5
+        cart_position: 1.0
+        cart_velocity: 1.0
+        force: 1000.0 #1.0
+        time: 1.0 
+
+simulation:
+  episodes_per_file: 200
+  use_cart_limit: true
+  cart_limit: 5.0
+  use_angle_limit: true
+  angle_limit: 1.0472  # pi/3 radianes
+  save_agent_state: true # Set to true to save Q-tables and visit counts
+  agent_state_save_frequency: 5000 # Save agent state every N episodes
+
+initial_conditions:
+  x0: [0.0, 0.0, 0.0349066, 0.0] # [posición carro, vel. carro, ángulo péndulo, vel. angular péndulo]  0.0349066(2°) 0.0873 (5°) 0.1746 (10°)
+
+pid_adaptation:
+  gain_step: 5.0 # Step size if variable_step is false
+  # Example if variable_step were true:
+  # gain_step:
+  #   kp: 5.0
+  #   ki: 1.0
+  #   kd: 0.5
+  variable_step: false
+  reset_gains_each_episode: true # Reset PID gains at start of each episode
+
+stabilization_criteria:
+  angle_threshold: 0.001
+  velocity_threshold: 0.005
+
+visualization:
+  enabled: true # Master switch to enable/disable all automatic plotting
+  config_file: sub_config_visualization.yaml # Path relative to main config file
