@@ -1,7 +1,7 @@
 # interfaces/plot_generator.py
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Union
-import pandas as pd
+from typing import Dict, Any, List, Union # List, Union no se usan aquí pero son comunes
+import pandas as pd # No se usa directamente aquí, pero las implementaciones sí.
 
 class PlotGenerator(ABC):
     """
@@ -11,27 +11,25 @@ class PlotGenerator(ABC):
 
     @abstractmethod
     def generate_plot(self,
-                      plot_config: Dict[str, Any],
-                      results_folder: str):
+                      plot_config_data: Dict[str, Any], # 'plot_config_data'
+                      output_root_path_plot: str # 'output_root_path_plot' (nuevo nombre para results_folder)
+                     ):
         """
         Generates and saves a single plot based on the provided configuration,
-        loading the necessary data from files within the results_folder.
+        loading the necessary data from files within the output_root_path_plot.
 
         Args:
-            plot_config (Dict[str, Any]): Configuration dictionary for the specific plot,
-                                          including 'type', 'source', variables, styling,
-                                          output_filename, etc.
-            results_folder (str): The absolute path to the folder containing the
-                                  result files (e.g., summary Excel, detailed JSONs,
-                                  heatmap data Excel) needed for the plot.
+            plot_config_data (Dict[str, Any]): Configuration dictionary for the specific plot,
+                                          including 'type', 'source_file' (e.g., summary Excel, heatmap data), 
+                                          variables to plot, styling options, output_filename, etc.
+            output_root_path_plot (str): The absolute path to the root folder containing the
+                                  result files (e.g., episodes_summary_data.xlsx, 
+                                  detailed JSONs if needed, heatmap_data.xlsx) required for the plot.
 
         Raises:
-            FileNotFoundError: If required data files are not found.
-            ValueError: If plot_config is invalid or data is unsuitable.
-            NotImplementedError: If the plot type specified in plot_config is not supported.
-            Exception: For errors during data loading, plot generation, or saving.
+            FileNotFoundError: If required data files are not found within output_root_path_plot.
+            ValueError: If plot_config_data is invalid or data is unsuitable for the plot type.
+            NotImplementedError: If the plot type specified in plot_config_data is not supported.
+            Exception: For other errors during data loading, plot generation, or saving.
         """
-        # (1.1) Firma modificada: Se elimina el argumento 'data'.
-        # La implementación será responsable de cargar los datos necesarios
-        # desde 'results_folder' basado en 'plot_config'.
         pass

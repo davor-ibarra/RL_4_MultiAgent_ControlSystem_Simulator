@@ -1,31 +1,36 @@
+# utils/data/numpy_encoder.py
 import numpy as np
 import json
-import pandas as pd # Añadir pandas para manejar Timestamp si es necesario
+import pandas as pd # Para pd.Timestamp y pd.isna
 
 class NumpyEncoder(json.JSONEncoder):
     """
-    Codificador JSON personalizado para manejar tipos de NumPy (ndarray, float, int)
-    y potencialmente otros tipos como Timestamp de Pandas.
+    Codificador JSON personalizado para manejar tipos de NumPy (ndarray, float, int, bool)
+    y Timestamps de Pandas. Convierte NaN/inf a None para compatibilidad JSON.
     """
-    def default(self, obj):
-        # Manejar arrays de NumPy
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        # Manejar tipos flotantes de NumPy
-        if isinstance(obj, (np.float16, np.float32, np.float64)):
-            # Convertir NaN/inf a strings o None para JSON válido
-            if pd.isna(obj) or not np.isfinite(obj):
-                return None # o 'NaN', 'Infinity', '-Infinity' si se prefiere string
-            return float(obj)
-        # Manejar tipos enteros de NumPy
-        if isinstance(obj, ((np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64))):
-            return int(obj)
-        # Manejar booleanos de NumPy
-        if isinstance(obj, np.bool_):
-             return bool(obj)
-        # Manejar Timestamps de Pandas (si se usan en los datos)
-        if isinstance(obj, pd.Timestamp):
-             return obj.isoformat() # Convertir a string ISO 8601
+    def default(self, obj_to_encode): # Renombrado para claridad
+        # Arrays de NumPy a listas Python
+        if isinstance(obj_to_encode, np.ndarray):
+            return obj_to_encode.tolist()
+        
+        # Tipos flotantes de NumPy (float16, float32, float64)
+        # Usar np.floating para cubrir todos los tipos flotantes de NumPy
+        if isinstance(obj_to_encode, np.floating):
+            # Convertir NaN/inf a None para JSON válido, sino a float nativo
+            return None if pd.isna(obj_to_encode) or not np.isfinite(obj_to_encode) else float(obj_to_encode)
+            
+        # Tipos enteros de NumPy
+        # Usar np.integer para cubrir todos los tipos enteros de NumPy
+        if isinstance(obj_to_encode, np.integer):
+            return int(obj_to_encode)
+            
+        # Booleanos de NumPy
+        if isinstance(obj_to_encode, np.bool_):
+            return bool(obj_to_encode)
+            
+        # Timestamps de Pandas (si se usan y necesitan serializarse)
+        if isinstance(obj_to_encode, pd.Timestamp):
+            return obj_to_encode.isoformat() # Convertir a string ISO 8601
 
-        # Dejar que el codificador base maneje otros tipos o lance error
-        return super(NumpyEncoder, self).default(obj)
+        # Dejar que el codificador base maneje otros tipos o lance el TypeError apropiado
+        return super(NumpyEncoder, self).default(obj_to_encode)

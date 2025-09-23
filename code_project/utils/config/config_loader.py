@@ -4,197 +4,193 @@ import sys
 import numpy as np
 import yaml
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 
-# Configuración básica de logging si este módulo se usa standalone
-# (Se mantiene por si acaso, pero main.py configura el logging principal)
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)-4s - %(name)-4s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M')
+                    datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger(__name__)
+
+def _validate_data_handling_directives(data_handling_content: Dict[str, Any], sub_config_filename: str) -> Dict[str, Any]:
+    """
+    Valida la estructura y tipos del contenido del sub-archivo de data_handling.
+    Extrae directivas procesadas. Lanza errores si la estructura es inválida.
+    """
+    directives: Dict[str, Any] = {
+        'json_history_enabled': False, 'allowed_json_metrics': [],
+        'summary_enabled': False, 'summary_direct_columns': [],
+        'summary_stats_enabled': False, 'summary_stat_indicators': [], 'summary_stat_columns': []
+    }
+    err_prefix = f"[ConfigLoader:_validate_data_handling_directives] Error en '{sub_config_filename}':"
+
+    if not isinstance(data_handling_content, dict):
+        raise TypeError(f"{err_prefix} El contenido debe ser un diccionario.")
+
+    data_save_cfg = data_handling_content.get('data_save')
+    if not isinstance(data_save_cfg, dict):
+        # Permitir que 'data_save' esté ausente, usando defaults. Si está pero no es dict, es error.
+        logger.warning(f"{err_prefix} Sección 'data_save' ausente o no es dict. Usando directivas por defecto (deshabilitadas).")
+        return directives # Devuelve defaults si 'data_save' no está o es inválido
+
+    # --- json_history ---
+    json_hist_cfg = data_save_cfg.get('json_history')
+    if isinstance(json_hist_cfg, dict):
+        directives['json_history_enabled'] = bool(json_hist_cfg.get('enable', False))
+        allowed_metrics = json_hist_cfg.get('json_history_params', [])
+        if isinstance(allowed_metrics, list) and all(isinstance(item, str) for item in allowed_metrics):
+            directives['allowed_json_metrics'] = allowed_metrics
+        elif directives['json_history_enabled']: # Error si está enabled pero params son inválidos
+            raise TypeError(f"{err_prefix} 'json_history.json_history_params' debe ser lista de strings si 'enable' es true.")
+    elif json_hist_cfg is not None: # Existe pero no es dict
+         raise TypeError(f"{err_prefix} 'json_history' debe ser un diccionario si se provee.")
+
+
+    # --- summary ---
+    summary_cfg = data_save_cfg.get('summary')
+    if isinstance(summary_cfg, dict):
+        directives['summary_enabled'] = bool(summary_cfg.get('enabled', False))
+        direct_cols = summary_cfg.get('summary_params', [])
+        if isinstance(direct_cols, list) and all(isinstance(item, str) for item in direct_cols):
+            directives['summary_direct_columns'] = direct_cols
+        elif directives['summary_enabled']:
+            raise TypeError(f"{err_prefix} 'summary.summary_params' debe ser lista de strings si 'enabled' es true.")
+
+        # --- summary_statistics ---
+        summary_stats_cfg = summary_cfg.get('summary_statistics')
+        if isinstance(summary_stats_cfg, dict):
+            directives['summary_stats_enabled'] = bool(summary_stats_cfg.get('enabled', False))
+            indicators = summary_stats_cfg.get('indicators', [])
+            stat_cols = summary_stats_cfg.get('summary_statistics_params', [])
+
+            if isinstance(indicators, list) and all(isinstance(item, str) for item in indicators):
+                directives['summary_stat_indicators'] = indicators
+            elif directives['summary_stats_enabled']:
+                raise TypeError(f"{err_prefix} 'summary.summary_statistics.indicators' debe ser lista de strings si 'enabled' es true.")
+            
+            if isinstance(stat_cols, list) and all(isinstance(item, str) for item in stat_cols):
+                directives['summary_stat_columns'] = stat_cols
+            elif directives['summary_stats_enabled']:
+                raise TypeError(f"{err_prefix} 'summary.summary_statistics.summary_statistics_params' debe ser lista de strings si 'enabled' es true.")
+        elif summary_stats_cfg is not None and directives['summary_enabled']: # Existe pero no es dict
+            raise TypeError(f"{err_prefix} 'summary.summary_statistics' debe ser un diccionario si se provee y summary está enabled.")
+            
+    elif summary_cfg is not None: # Existe pero no es dict
+        raise TypeError(f"{err_prefix} 'summary' debe ser un diccionario si se provee.")
+        
+    logger.debug(f"[ConfigLoader] Data handling directives processed from '{sub_config_filename}': EnabledJSON={directives['json_history_enabled']}, EnabledSummary={directives['summary_enabled']}")
+    return directives
+
 
 def load_and_validate_config(
     config_filename: str = 'config.yaml'
-) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Dict[str, Any]]:
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Dict[str, Any], Dict[str, Any]]:
     """
-    Carga la configuración principal, la de visualización y la de logging desde archivos YAML.
-    Realiza validaciones de estructura y contenido esenciales.
-
-    Args:
-        config_filename (str): Nombre del archivo de configuración principal.
-
-    Returns:
-        Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Dict[str, Any]]:
-          (main_config, vis_config, logging_config).
-          Devuelve (None, None, {}) si hay un error crítico cargando/validando main_config.
-          vis_config será None si la visualización está desactivada o hay error.
-          logging_config será un diccionario (vacío por defecto).
+    Carga y valida configuraciones.
+    Devuelve: (main_config, vis_config, logging_config, processed_data_directives).
+    processed_data_directives siempre será un dict (posiblemente con defaults).
     """
     script_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
     main_config_path = os.path.join(script_dir, config_filename)
     main_config: Optional[Dict[str, Any]] = None
     vis_config: Optional[Dict[str, Any]] = None
-    logging_config: Dict[str, Any] = {}
+    logging_config_data: Dict[str, Any] = {} # Renombrado para evitar colisión
+    data_directives_processed: Dict[str, Any] # Siempre se inicializa
 
     logger.info(f"[ConfigLoader] Attempting to load main config from: {main_config_path}")
     if not os.path.exists(main_config_path):
-        logger.error(f"[ConfigLoader] CRITICAL: Main config file not found: {main_config_path}")
-        return None, None, {}
+        logger.critical(f"[ConfigLoader] CRITICAL: Main config file not found: {main_config_path}")
+        # Devolver defaults para data_directives_processed para que main no falle si SimMan lo necesita
+        return None, None, {}, _validate_data_handling_directives({}, "dummy_for_defaults.yaml")
 
     try:
         with open(main_config_path, 'r', encoding='utf-8') as file:
             main_config = yaml.safe_load(file)
-            if not isinstance(main_config, dict):
-                raise TypeError(f"Content of '{config_filename}' is not a valid YAML dictionary.")
-            logger.info(f"[ConfigLoader] Main configuration loaded from: {main_config_path}")
+        if not isinstance(main_config, dict):
+            raise TypeError(f"Content of '{config_filename}' is not a valid YAML dictionary.")
+        logger.info(f"[ConfigLoader] Main configuration loaded from: {main_config_path}")
 
-        # --- [2] Validación Estructura Esencial ---
-        # Nivel Superior
-        required_top_level_sections = ['environment', 'visualization', 'logging']
-        for section in required_top_level_sections:
-            if section not in main_config:
-                raise KeyError(f"Required top-level section '{section}' absent in '{config_filename}'.")
-            if section == 'environment' and not isinstance(main_config[section], dict):
-                raise TypeError(f"Top-level section '{section}' must be a dictionary.")
-            elif section in ['visualization', 'logging'] and \
-                 main_config[section] is not None and not isinstance(main_config[section], dict):
-                if isinstance(main_config[section], bool) and section == 'visualization' and not main_config[section]:
-                    pass # Permitir visualization: false
-                else:
-                    raise TypeError(f"Top-level section '{section}' must be a dictionary or null/false (for visualization).")
-        logger.debug("[ConfigLoader] Top-level sections validated.")
+        # --- Validación Estructural Mínima de main_config ---
+        # (Esta es una validación de alto nivel; los componentes validarán sus propias secciones más a fondo)
+        required_sections = ['environment', 'data_handling', 'visualization', 'logging']
+        for section in required_sections:
+            if section not in main_config or not isinstance(main_config[section], dict):
+                raise KeyError(f"Required top-level section '{section}' missing or not a dictionary in '{config_filename}'.")
+        
+        # Validaciones más específicas para environment (ejemplos)
+        env_cfg = main_config['environment']
+        if 'type' not in env_cfg or not isinstance(env_cfg['type'], str):
+            raise ValueError("main_config: 'environment.type' is missing or invalid.")
+        if 'simulation' not in env_cfg or not isinstance(env_cfg['simulation'], dict):
+            raise ValueError("main_config: 'environment.simulation' section is missing or invalid.")
+        if 'dt_sec' not in env_cfg['simulation'] or not isinstance(env_cfg['simulation']['dt_sec'], (int, float)):
+            raise ValueError("main_config: 'environment.simulation.dt_sec' is missing or invalid.")
+        # ... (añadir más validaciones cruciales para system, controller, agent, reward_setup si es necesario) ...
+        # Reward setup validation
+        reward_setup_cfg = env_cfg.get('reward_setup')
+        if not isinstance(reward_setup_cfg, dict): raise ValueError("Config 'environment.reward_setup' missing or not dict.")
+        if 'reward_strategy' not in reward_setup_cfg or not isinstance(reward_setup_cfg['reward_strategy'], dict):
+            raise ValueError("Config 'environment.reward_setup.reward_strategy' missing or not dict.")
+        if 'type' not in reward_setup_cfg['reward_strategy']: raise ValueError("Config 'reward_strategy.type' missing.")
+        if 'calculation' not in reward_setup_cfg or not isinstance(reward_setup_cfg['calculation'], dict):
+            raise ValueError("Config 'environment.reward_setup.calculation' missing or not dict.")
+        if 'method' not in reward_setup_cfg['calculation']: raise ValueError("Config 'calculation.method' missing.")
+        # 'stability_measure' es opcional en 'calculation', si no está, RewardFactory usará NullStabilityCalculator.
 
-        # Nivel 'environment'
-        env_cfg = main_config.get('environment', {})
-        required_env_sections = [
-            'results_folder', 'simulation', 'system',
-            'controller', 'agent', 'reward_setup', 'initial_conditions'
-        ]
-        for section in required_env_sections:
-            if section not in env_cfg:
-                raise KeyError(f"Required section 'environment.{section}' absent.")
-            if not isinstance(env_cfg[section], dict) and section not in ['results_folder']: # results_folder es string
-                 raise TypeError(f"Section 'environment.{section}' must be a dictionary (except results_folder).")
-        logger.debug("[ConfigLoader] 'environment' sub-sections validated.")
+        logger.debug("[ConfigLoader] Basic structure of main_config validated.")
 
-        # Nivel 'environment.controller'
-        controller_cfg = env_cfg.get('controller', {})
-        if 'pid_adaptation' not in controller_cfg or not isinstance(controller_cfg['pid_adaptation'], dict):
-            raise KeyError("Required section 'environment.controller.pid_adaptation' absent or not a dictionary.")
-        logger.debug("[ConfigLoader] 'environment.controller.pid_adaptation' validated.")
+    except (yaml.YAMLError, FileNotFoundError, TypeError, ValueError, KeyError) as e_cfg_load:
+        logger.critical(f"[ConfigLoader] CRITICAL error loading/validating '{config_filename}': {e_cfg_load}", exc_info=True)
+        return None, None, {}, _validate_data_handling_directives({}, "dummy_for_defaults_on_error.yaml")
 
-        # Nivel 'environment.reward_setup'
-        reward_setup = env_cfg.get('reward_setup', {})
-        if 'reward_strategy' not in reward_setup or not isinstance(reward_setup['reward_strategy'], dict):
-            raise KeyError("Section 'environment.reward_setup.reward_strategy' absent or not a dictionary.")
-        if 'calculation' not in reward_setup or not isinstance(reward_setup['calculation'], dict):
-            raise KeyError("Section 'environment.reward_setup.calculation' absent or not a dictionary.")
-        logger.debug("[ConfigLoader] 'environment.reward_setup' sub-sections validated.")
 
-        # Validación 'reward_setup.calculation.stability_calculator'
-        calc_cfg = reward_setup.get('calculation', {})
-        stab_cfg = calc_cfg.get('stability_calculator', {}) # Puede ser None o no existir
-        stability_calculator_type_present = False
-        if stab_cfg is not None and isinstance(stab_cfg, dict):
-            stab_calc_type = stab_cfg.get('type')
-            if stab_calc_type and isinstance(stab_calc_type, str):
-                stability_calculator_type_present = True
-                # Validar que si 'type' está, los params correspondientes existan como dict
-                # Ejemplo: si type: 'ira_instantaneous', debe existir 'ira_instantaneous_params: {}'
-                expected_params_key = f"{stab_calc_type}_params"
-                if expected_params_key not in stab_cfg or not isinstance(stab_cfg[expected_params_key], dict):
-                    raise ValueError(f"Stability calculator type '{stab_calc_type}' is defined, but its parameters section 'stability_calculator.{expected_params_key}' is missing or not a dictionary.")
-            elif stab_calc_type is not None: # Existe 'type' pero no es string
-                 raise TypeError(f"'stability_calculator.type' must be a string, found: {type(stab_calc_type).__name__}")
-            # Si 'type' no está, se considera no configurado, lo cual es válido si no se usa.
-        elif stab_cfg is not None: # Existe 'stability_calculator' pero no es un dict
-            raise TypeError("'environment.reward_setup.calculation.stability_calculator' must be a dictionary or null.")
-        logger.debug(f"[ConfigLoader] 'stability_calculator' basic validation done. Type present: {stability_calculator_type_present}")
-
-        # Validación cruzada: 'shadow_baseline' requiere 'stability_calculator.type'
-        learn_strat_cfg = reward_setup.get('reward_strategy', {})
-        learn_type = learn_strat_cfg.get('type')
-        if learn_type == 'shadow_baseline' and not stability_calculator_type_present:
-            raise ValueError("Learning strategy 'shadow_baseline' requires 'stability_calculator.type' to be defined.")
-        allowed_strategies = ['global', 'shadow_baseline', 'echo_baseline']
-        if learn_type not in allowed_strategies:
-             raise ValueError(f"Unknown 'reward_strategy.type': '{learn_type}'. Allowed: {allowed_strategies}")
-        if 'strategy_params' not in learn_strat_cfg or not isinstance(learn_strat_cfg['strategy_params'], dict):
-            raise TypeError("'reward_strategy.strategy_params' must be a dictionary.")
-        if learn_type in learn_strat_cfg['strategy_params'] and not isinstance(learn_strat_cfg['strategy_params'][learn_type], dict):
-            raise TypeError(f"'reward_strategy.strategy_params.{learn_type}' must be a dictionary.")
-        logger.debug("[ConfigLoader] 'reward_strategy' and cross-validation with stability_calculator done.")
-
-        # Estimación Q-Table (usando nuevas rutas)
-        agent_cfg_est = env_cfg.get('agent', {})
-        if agent_cfg_est.get('type') == 'pid_qlearning':
-            agent_params_est = agent_cfg_est.get('params', {})
-            state_cfg_q_est = agent_params_est.get('state_config', {})
-            if isinstance(state_cfg_q_est, dict):
-                enabled_bins = []
-                for var_name, var_cfg_est in state_cfg_q_est.items():
-                    if isinstance(var_cfg_est, dict) and var_cfg_est.get('enabled'):
-                        bins = var_cfg_est.get('bins')
-                        if isinstance(bins, int) and bins > 0:
-                            enabled_bins.append(bins)
-                if enabled_bins:
-                    total_states = np.prod(enabled_bins) if enabled_bins else 1
-                    num_actions = agent_params_est.get('num_actions', 3)
-                    if not isinstance(num_actions, int) or num_actions <= 0: num_actions = 3
-                    estimated_entries = total_states * num_actions
-                    threshold = 1_000_000 # Mismo umbral
-                    msg_q_table = f"[ConfigLoader] Q-table estimate: ~{estimated_entries:,.0f} entries/table ({len(enabled_bins)} vars: {enabled_bins} bins, {num_actions} acts)."
-                    if estimated_entries > threshold: logger.warning(f"{msg_q_table} Exceeds threshold ({threshold:,.0f}).")
-                    else: logger.info(f"{msg_q_table} (OK).")
-                else: logger.info("[ConfigLoader] Q-table estimate: No state variables enabled/valid for estimation.")
-            else: logger.warning("[ConfigLoader] Q-table estimate: 'agent.params.state_config' is not a dictionary.")
-
-    except (yaml.YAMLError, FileNotFoundError, TypeError, ValueError, KeyError) as e:
-        logger.error(f"[ConfigLoader] CRITICAL error loading/validating '{config_filename}': {e}", exc_info=True)
-        return None, None, {}
-    except Exception as e:
-        logger.error(f"[ConfigLoader] UNEXPECTED error loading/validating '{config_filename}': {e}", exc_info=True)
-        return None, None, {}
-
-    # --- [3] Extraer logging_config ---
-    logging_config = main_config.get('logging', {})
-    if not isinstance(logging_config, dict):
-        logger.warning("[ConfigLoader] 'logging' section not a dictionary or null. Using default {}.")
-        logging_config = {}
-
-    # --- [4] Carga Visualización Config ---
-    vis_settings = main_config.get('visualization', {})
-    if vis_settings is None: vis_settings = {} # Tratar null como dict vacío
-    if not isinstance(vis_settings, dict):
-        logger.warning("[ConfigLoader] 'visualization' section not a dictionary or null. Disabling visualization.")
-        vis_settings = {'enabled': False}
-
-    vis_enabled = vis_settings.get('enabled', False)
-    if vis_enabled:
-        vis_file_rel = vis_settings.get('config_file')
-        if not vis_file_rel or not isinstance(vis_file_rel, str):
-            logger.warning("[ConfigLoader] Visualization enabled but 'config_file' missing/invalid. Vis_config will be None.")
-        else:
-            vis_path_abs = os.path.join(script_dir, vis_file_rel)
-            logger.info(f"[ConfigLoader] Attempting to load visualization config from: {vis_path_abs}")
-            if not os.path.exists(vis_path_abs):
-                logger.error(f"[ConfigLoader] Visualization config file '{vis_path_abs}' NOT found. Vis_config will be None.")
-            else:
+    # --- Logging Config ---
+    logging_config_data = main_config.get('logging', {}) # Ya se validó que existe y es dict
+    
+    # --- Visualization Config ---
+    vis_settings = main_config.get('visualization', {}) # Ya se validó
+    if vis_settings.get('enabled', False):
+        vis_file_path = vis_settings.get('config_file')
+        if vis_file_path and isinstance(vis_file_path, str):
+            abs_vis_path = os.path.join(script_dir, vis_file_path)
+            if os.path.exists(abs_vis_path):
                 try:
-                    with open(vis_path_abs, 'r', encoding='utf-8') as vf:
-                        vis_config_loaded = yaml.safe_load(vf)
-                        if not isinstance(vis_config_loaded, dict):
-                            logger.error(f"[ConfigLoader] Content of '{vis_path_abs}' is not a YAML dictionary. Vis_config set to None.")
-                        elif 'plots' not in vis_config_loaded or not isinstance(vis_config_loaded['plots'], list):
-                            logger.error(f"[ConfigLoader] Vis config '{vis_path_abs}' loaded, but 'plots' key missing or not a list. Vis_config set to None.")
-                        else:
-                            vis_config = vis_config_loaded # ¡Éxito!
-                            logger.info(f"[ConfigLoader] Visualization config loaded and validated from: {vis_path_abs}")
-                except (yaml.YAMLError, OSError) as e:
-                    logger.error(f"[ConfigLoader] Error loading/parsing vis_config '{vis_path_abs}': {e}. Vis_config set to None.")
-                except Exception as e_vis: # Captura genérica para errores inesperados
-                    logger.error(f"[ConfigLoader] UNEXPECTED error loading vis_config '{vis_path_abs}': {e_vis}", exc_info=True)
-    else:
-        logger.info("[ConfigLoader] Visualization explicitly disabled in main config.")
+                    with open(abs_vis_path, 'r', encoding='utf-8') as vf: vis_config = yaml.safe_load(vf)
+                    if not isinstance(vis_config, dict) or 'plots' not in vis_config or not isinstance(vis_config['plots'], list):
+                        logger.error(f"Vis config '{abs_vis_path}' invalid. Disabling vis.")
+                        vis_config = None
+                    else: logger.info(f"Visualization config loaded from: {abs_vis_path}")
+                except Exception as e_vis: 
+                    logger.error(f"Error loading vis_config '{abs_vis_path}': {e_vis}. Disabling vis.")
+                    vis_config = None
+            else: logger.warning(f"Vis config file '{abs_vis_path}' not found. Disabling vis.")
+        else: logger.warning("Vis enabled but 'config_file' missing/invalid. Disabling vis.")
+    else: logger.info("Visualization disabled in main config.")
 
-    return main_config, vis_config, logging_config
+
+    # --- Data Handling Directives ---
+    data_handling_cfg_main = main_config.get('data_handling', {}) # Ya se validó
+    sub_config_file_path = data_handling_cfg_main.get('config_file') # Ya se validó que existe si data_handling es dict
+    
+    if not sub_config_file_path or not isinstance(sub_config_file_path, str):
+        # Esto no debería ocurrir si la validación de main_config fue estricta.
+        logger.error("[ConfigLoader] 'data_handling.config_file' missing or invalid in main_config. Using default (disabled) data directives.")
+        data_directives_processed = _validate_data_handling_directives({}, sub_config_file_path if sub_config_file_path else "N/A")
+    else:
+        abs_sub_config_path = os.path.join(script_dir, sub_config_file_path)
+        if not os.path.exists(abs_sub_config_path):
+            logger.error(f"[ConfigLoader] Data handling sub-config '{abs_sub_config_path}' NOT found. Using default (disabled) data directives.")
+            data_directives_processed = _validate_data_handling_directives({}, sub_config_file_path)
+        else:
+            try:
+                with open(abs_sub_config_path, 'r', encoding='utf-8') as dh_f:
+                    dh_content = yaml.safe_load(dh_f)
+                if not isinstance(dh_content, dict) : # El archivo debe ser un dict en la raíz
+                    raise TypeError(f"Content of '{sub_config_file_path}' is not a valid YAML dictionary at its root.")
+                data_directives_processed = _validate_data_handling_directives(dh_content, sub_config_file_path)
+                logger.info(f"Data handling directives loaded and validated from: {abs_sub_config_path}")
+            except Exception as e_dh_sub_load: # Captura YAML, TypeError, ValueError de _validate
+                logger.critical(f"[ConfigLoader] CRITICAL error loading/validating data handling sub-config '{sub_config_file_path}': {e_dh_sub_load}. Aborting.", exc_info=True)
+                # Si falla la carga/validación del sub-archivo de datos, es crítico.
+                return None, None, {}, _validate_data_handling_directives({}, "dummy_on_sub_config_fail.yaml")
+
+    return main_config, vis_config, logging_config_data, data_directives_processed

@@ -74,7 +74,7 @@ class Environment(ABC):
         pass
 
     @abstractmethod
-    def update_reward_calculator_stats(self, episode_metrics_dict: Dict, current_episode: int):
+    def update_reward_and_stability_calculator_stats(self, episode_metrics_dict: Dict, current_episode: int):
         """
         Triggers an update of internal statistics within the environment's
         reward function or its components (e.g., adaptive stability calculator),

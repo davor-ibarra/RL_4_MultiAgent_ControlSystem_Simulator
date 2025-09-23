@@ -24,14 +24,14 @@ class VisualizationManager:
     """
     def __init__(self, logger_instance: logging.Logger, plot_generator: PlotGenerator,
                  heatmap_generator: HeatmapGenerator, vis_config_data: Optional[Dict[str, Any]],
-                 results_folder: str):
+                 results_folder_path: str):
         # 2.4: Usar logger inyectado
         self.logger = logger_instance
         self.plot_generator = plot_generator
         self.heatmap_generator = heatmap_generator
         # Asegurar que vis_config sea un dict, aunque esté vacío
         self.vis_config = vis_config_data if isinstance(vis_config_data, dict) else {}
-        self.results_folder = results_folder
+        self.results_folder_path = results_folder_path
 
         self.logger.info("[VisualizationManager] VisualizationManager instance created.")
 
@@ -45,8 +45,8 @@ class VisualizationManager:
         if heatmap_generator is None:
             self.logger.error("[VisualizationManager] HeatmapGenerator no proporcionado.")
             raise ValueError("HeatmapGenerator es requerido.")
-        if not os.path.isdir(results_folder):
-            self.logger.error(f"[VisualizationManager] Carpeta de resultados no válida: {results_folder}")
+        if not os.path.isdir(results_folder_path):
+            self.logger.error(f"[VisualizationManager] Carpeta de resultados no válida: {results_folder_path}")
 
     def _generate_heatmap_data_if_needed(self):
         """Genera datos para heatmaps si están configurados."""
@@ -76,14 +76,14 @@ class VisualizationManager:
 
         self.logger.info(f"[VisualizationManager_generate_heatmap_data_if_needed] Iniciando pre-generación de datos para {len(heatmap_plot_configs_with_index)} heatmaps...")
         # 2.8: Definir nombre de archivo Excel de salida
-        output_excel_filepath = os.path.join(self.results_folder, "data_heatmaps.xlsx")
+        output_excel_filepath = os.path.join(self.results_folder_path, "data_heatmaps.xlsx")
 
         try:
             # 2.9: Llamar a HeatmapGenerator.generate pasando la lista filtrada y con índice
             self.heatmap_generator.generate(
-                results_folder=self.results_folder,
-                heatmap_configs=heatmap_plot_configs_with_index, # Pasa la lista procesada
-                output_excel_filepath=output_excel_filepath
+                output_root_path_gen=self.results_folder_path,
+                heatmap_configs_list=heatmap_plot_configs_with_index, # Pasa la lista procesada
+                output_excel_target_filepath=output_excel_filepath
             )
             # El logging de éxito/fracaso está dentro de HeatmapGenerator.generate
             self.logger.info("[VisualizationManager_generate_heatmap_data_if_needed] Llamada a pre-generación de datos para heatmaps completada.")
@@ -131,8 +131,8 @@ class VisualizationManager:
             try:
                 # 2.13: Llamar a la interfaz PlotGenerator
                 self.plot_generator.generate_plot(
-                    plot_config=plot_cfg_copy,
-                    results_folder=self.results_folder
+                    plot_config_data=plot_cfg_copy,
+                    output_root_path_plot=self.results_folder_path
                 )
                 num_generated += 1
             except NotImplementedError as nie:

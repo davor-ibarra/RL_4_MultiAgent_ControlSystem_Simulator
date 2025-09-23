@@ -1,144 +1,129 @@
+# components/analysis/extended_metrics_collector.py
 from collections import defaultdict
-from interfaces.metrics_collector import MetricsCollector # Importar interfaz
+from interfaces.metrics_collector import MetricsCollector
 import numpy as np
-import pandas as pd
+import pandas as pd # Para pd.notna/isna
 import logging
-from typing import Optional, Dict, Any, List, TYPE_CHECKING
+from typing import Optional, Dict, Any, List, TYPE_CHECKING, Set
 
-# Evitar importación circular para type hinting del agente
 if TYPE_CHECKING:
-    from interfaces.rl_agent import RLAgent # Usar interfaz
+    from interfaces.rl_agent import RLAgent # Para type hints en helpers
 
-# 2.1: Usar logger específico del módulo
-logger = logging.getLogger(__name__)
+logger_emc_mod = logging.getLogger(__name__) # Renombrado
 
-class ExtendedMetricsCollector(MetricsCollector): # Implementar Interfaz
-    """
-    Implementación concreta de MetricsCollector.
-    Recolecta métricas en un defaultdict. Incluye métodos helper para loguear
-    datos específicos del agente (Q-values, visitas, etc.) usando la interfaz RLAgent.
-    """
-    _instance_count = 0 # Contador para IDs de instancia (debug)
+class ExtendedMetricsCollector(MetricsCollector):
+    _instance_id_counter = 0 # Para diferenciar instancias si se crean múltiples (ej. por tests)
 
-    def __init__(self):
-        """Inicializa el colector de métricas."""
-        ExtendedMetricsCollector._instance_count += 1
-        # Usar defaultdict(list) para simplificar log
-        self.metrics: Dict[str, List[Any]] = defaultdict(list)
-        self.episode_id: int = -1 # ID del episodio actual
-        self._instance_id = ExtendedMetricsCollector._instance_count
-        # logger.debug(f"ExtendedMetricsCollector instance {self._instance_id} created.")
+    def __init__(self, allowed_metrics_to_log: List[str]): # Recibe la lista de métricas permitidas
+        ExtendedMetricsCollector._instance_id_counter += 1
+        self._instance_id = ExtendedMetricsCollector._instance_id_counter
+        
+        self.collected_data: Dict[str, List[Any]] = defaultdict(list) # Renombrado
+        self.current_episode_num: int = -1 # Renombrado
 
-    def log(self, metric_name: str, metric_value: Any):
-        """Registra un valor único para una métrica, convirtiendo None/inf a NaN."""
-        value_to_log: Any
-        # 2.2: Convertir None, inf, -inf a np.nan para consistencia numérica
-        if metric_value is None:
-            value_to_log = np.nan
-        elif isinstance(metric_value, (float, int)) and not np.isfinite(metric_value):
-            value_to_log = np.nan
-        else:
-            value_to_log = metric_value
-        # 2.3: Log data for each metric
-        #logger.debug(f"Log Metric: {metric_name} = {value_to_log}") # Log muy verboso
-        self.metrics[metric_name].append(value_to_log)
+        # Almacenar como un conjunto para búsqueda eficiente.
+        # Si allowed_metrics_to_log está vacía, significa que json_history está deshabilitado
+        # o no se especificaron métricas, por lo que no se logueará nada para JSON.
+        self._allowed_metrics_filter_set: Set[str] = set(allowed_metrics_to_log)
+        
+        # if not self._allowed_metrics_filter_set:
+            # logger_emc_mod.debug(f"[EMC Inst:{self._instance_id}] Initialized with empty allowed_metrics. No detailed history will be stored by this instance.")
+        # else:
+            # logger_emc_mod.debug(f"[EMC Inst:{self._instance_id}] Initialized. Allowed metrics for JSON: {len(self._allowed_metrics_filter_set)}")
+
+    def log(self, metric_key: str, metric_val: Any): # Renombrados
+        # Filtrar en origen: solo almacenar si la métrica está en el conjunto permitido
+        if not self._allowed_metrics_filter_set or metric_key not in self._allowed_metrics_filter_set:
+            # No loguear nada aquí para evitar spam si muchas métricas se ignoran.
+            # El debug en __init__ es suficiente para saber si está activo.
+            return
+
+        value_to_store: Any
+        if metric_val is None:
+            value_to_store = np.nan # Usar NaN de NumPy para consistencia
+        elif isinstance(metric_val, (float, int)) and not np.isfinite(metric_val):
+            value_to_store = np.nan # Convertir inf/-inf a NaN
+        else: # Aceptar strings, bools, y números finitos tal cual
+            value_to_store = metric_val
+        
+        self.collected_data[metric_key].append(value_to_store)
 
     def get_metrics(self) -> Dict[str, List[Any]]:
-        """Devuelve una copia de las métricas recolectadas como dict estándar."""
-        # 2.4: Devolver copia explícita para evitar modificaciones externas
-        return dict(self.metrics)
+        return dict(self.collected_data) # Devolver una copia para evitar modificación externa
 
-    def reset(self, episode_id: int):
-        """Limpia métricas y establece nuevo ID de episodio."""
-        # logger.debug(f"(Inst {self._instance_id}) Resetting metrics for episode {episode_id}")
-        self.metrics.clear()
-        self.episode_id = episode_id
+    def reset(self, episode_identifier_num: int): # Renombrado
+        # logger_emc_mod.debug(f"[EMC Inst:{self._instance_id}] Resetting metrics for episode {episode_identifier_num}")
+        self.collected_data.clear()
+        self.current_episode_num = episode_identifier_num
 
-    # --- MÉTODOS PRIVADOS --- (para loguear datos del agente/entrenamiento)
-    # Usan la interfaz RLAgent para obtener los datos.
+    # --- Métodos Helper para loguear datos específicos (opcionales pero convenientes) ---
+    # Estos métodos ya no necesitan chequear 'json_history_enabled', 
+    # ya que self.log() lo hace internamente basado en _allowed_metrics_filter_set.
 
-    def log_q_values(self, agent: 'RLAgent', agent_state_dict: Dict):
-        """Registra los Q-values máximos para el estado actual."""
-        # 2.5: Usar interfaz RLAgent.get_q_values_for_state
-        q_values_per_gain = agent.get_q_values_for_state(agent_state_dict)
-        for gain, q_vals_array in q_values_per_gain.items():
-            # nanmax devuelve NaN si todo el array es NaN
-            max_q = np.nanmax(q_vals_array) if isinstance(q_vals_array, np.ndarray) else np.nan
-            self.log(f'q_value_max_{gain}', max_q)
+    def log_q_values(self, agent_q_log: 'RLAgent', agent_s_dict_q_log: Dict[str, Any]):
+        q_values_map = agent_q_log.get_q_values_for_state(agent_s_dict_q_log)
+        for gain_key_q, q_vals_arr in q_values_map.items():
+            # q_vals_arr puede ser un array de NaNs si el estado no tiene Q-values
+            max_q = np.nanmax(q_vals_arr) if isinstance(q_vals_arr, np.ndarray) and q_vals_arr.size > 0 and not np.all(np.isnan(q_vals_arr)) else np.nan
+            self.log(f'q_value_max_{gain_key_q}', max_q)
 
+    def log_q_visit_counts(self, agent_v_log: 'RLAgent', agent_s_dict_v_log: Dict[str, Any]):
+        visit_counts_map = agent_v_log.get_visit_counts_for_state(agent_s_dict_v_log)
+        for gain_key_v, visits_arr in visit_counts_map.items():
+            # visits_arr puede tener -1s. Sumar solo los >= 0.
+            total_visits = np.nansum(visits_arr[visits_arr >= 0]) if isinstance(visits_arr, np.ndarray) and visits_arr.size > 0 else 0
+            self.log(f'q_visit_count_state_{gain_key_v}', int(total_visits))
 
-    def log_q_visit_counts(self, agent: 'RLAgent', agent_state_dict: Dict):
-        """Registra la suma de cuentas de visita N(s,a) para el estado actual."""
-        # 2.6: Usar interfaz RLAgent.get_visit_counts_for_state
-        visit_counts_per_gain = agent.get_visit_counts_for_state(agent_state_dict)
-        for gain, visits_array in visit_counts_per_gain.items():
-            total_visits = np.nan # Default a NaN
-            if isinstance(visits_array, np.ndarray) and visits_array.size > 0:
-                # Sumar solo visitas válidas (>= 0), nansum maneja NaN si los hubiera
-                valid_visits = visits_array[visits_array >= 0]
-                total_visits = np.nansum(valid_visits)
-            self.log(f'q_visit_count_state_{gain}', total_visits)
+    def log_baselines(self, agent_b_log: 'RLAgent', agent_s_dict_b_log: Dict[str, Any]):
+        # Solo loguear si la estrategia del agente realmente usa/requiere baselines.
+        # Esto se puede inferir si 'baseline' está en las tablas auxiliares requeridas.
+        if 'baseline' in agent_b_log.reward_strategy.required_auxiliary_tables:
+            baselines_map = agent_b_log.get_baseline_value_for_state(agent_s_dict_b_log)
+            for gain_key_b, baseline_val_data in baselines_map.items():
+                self.log(f'baseline_value_{gain_key_b}', baseline_val_data) # baseline_val_data puede ser NaN
 
-    def log_baselines(self, agent: 'RLAgent', agent_state_dict: Dict):
-        """Registra el valor del baseline B(s) para el estado actual."""
-        # 2.7: Usar interfaz RLAgent.get_baseline_value_for_state
-        baselines_per_gain = agent.get_baseline_value_for_state(agent_state_dict)
-        for gain, baseline_value in baselines_per_gain.items():
-            # El método del agente ya debería devolver float o NaN
-            self.log(f'baseline_value_{gain}', baseline_value)
+    def log_virtual_rewards(self, virtual_rewards_diff_map: Optional[Dict[str, float]]):
+        # Usado por EchoBaseline. virtual_rewards_diff_map contiene R_diff.
+        gain_keys_vr = ['kp', 'ki', 'kd'] # Asumimos estas ganancias
+        if isinstance(virtual_rewards_diff_map, dict):
+            for gk_vr in gain_keys_vr:
+                self.log(f'virtual_reward_{gk_vr}', virtual_rewards_diff_map.get(gk_vr, np.nan))
+        else: # Si no es dict (ej. None), loguear NaNs
+            for gk_vr_none in gain_keys_vr: self.log(f'virtual_reward_{gk_vr_none}', np.nan)
 
-    def log_virtual_rewards(self, virtual_rewards_dict: Optional[Dict[str, float]]):
-        """Registra las recompensas virtuales/diferenciales (Echo Baseline)."""
-        gains_to_log = ['kp', 'ki', 'kd']
-        if virtual_rewards_dict is not None and isinstance(virtual_rewards_dict, dict):
-            for gain in gains_to_log:
-                value = virtual_rewards_dict.get(gain, np.nan) # Default a NaN si falta la clave
-                self.log(f'virtual_reward_{gain}', value) # log maneja NaN
-        else: # Log NaN si el dict es None o no es dict
-            for gain in gains_to_log: self.log(f'virtual_reward_{gain}', np.nan)
+    def log_td_errors(self, td_errors_map_log: Dict[str, float]):
+        # td_errors_map_log viene de agent.get_last_td_errors()
+        gain_keys_td = ['kp', 'ki', 'kd']
+        if isinstance(td_errors_map_log, dict):
+            for gk_td in gain_keys_td:
+                self.log(f'td_error_{gk_td}', td_errors_map_log.get(gk_td, np.nan))
+        # else: logger_emc_mod.warning(f"td_errors_map_log not a valid dict. Logging NaNs for TD errors.")
 
-    def log_td_errors(self, td_errors_dict: Dict[str, float]):
-        """Registra los TD errors del último paso de learn."""
-        # 2.8: Usar interfaz RLAgent.get_last_td_errors
-        gains_to_log = ['kp', 'ki', 'kd']
-        if isinstance(td_errors_dict, dict):
-            for gain in gains_to_log:
-                # El método del agente ya devuelve float o NaN
-                td_error = td_errors_dict.get(gain, np.nan)
-                self.log(f'td_error_{gain}', td_error)
-        #else: # Log NaN si no es dict
-        #    logger.warning(f"td_errors_dict no es un diccionario ({type(td_errors_dict)}). Logueando NaNs.")
-        #    for gain in gains_to_log: self.log(f'td_error_{gain}', np.nan)
+    def log_adaptive_stats(self, adaptive_stats_dict_log: Dict[str, Dict[str, float]]):
+        # adaptive_stats_dict_log es como {'angle': {'mu': x, 'sigma': y}, ...}
+        features_for_adapt_log = ['angle', 'angular_velocity', 'cart_position', 'cart_velocity']
+        if not isinstance(adaptive_stats_dict_log, dict):
+            # Loguear NaNs si el dict es inválido
+            for feat_name_nan in features_for_adapt_log:
+                self.log(f'adaptive_mu_{feat_name_nan}', np.nan); self.log(f'adaptive_sigma_{feat_name_nan}', np.nan)
+            return
 
-    def log_adaptive_stats(self, stats_dict: Dict[str, Dict[str, float]]):
-        """Registra las estadísticas adaptativas (mu, sigma) del stability calculator."""
-        # 2.9: Loguear stats si el dict es válido
-        adaptive_vars = ['angle', 'angular_velocity', 'cart_position', 'cart_velocity']
-        if not isinstance(stats_dict, dict):
-            # Loguear NaN si no hay stats (calculador no adaptativo o error)
-             for var_name in adaptive_vars:
-                 self.log(f'adaptive_mu_{var_name}', np.nan)
-                 self.log(f'adaptive_sigma_{var_name}', np.nan)
-             return
-
-        for var_name in adaptive_vars:
-            mu, sigma = np.nan, np.nan
-            var_stats = stats_dict.get(var_name) # Obtener sub-dict
-            if isinstance(var_stats, dict):
-                mu = var_stats.get('mu', np.nan) # Default a NaN si falta 'mu'
-                sigma = var_stats.get('sigma', np.nan) # Default a NaN si falta 'sigma'
-            self.log(f'adaptive_mu_{var_name}', mu) # log maneja NaN
-            self.log(f'adaptive_sigma_{var_name}', sigma) # log maneja NaN
+        for feat_name_log in features_for_adapt_log:
+            stats_for_feat = adaptive_stats_dict_log.get(feat_name_log, {}) # Default a dict vacío
+            self.log(f'adaptive_mu_{feat_name_log}', stats_for_feat.get('mu', np.nan))
+            self.log(f'adaptive_sigma_{feat_name_log}', stats_for_feat.get('sigma', np.nan))
     
-    def log_early_termination_metrics(self, agent: 'RLAgent'):
-        agent_vars_to_log = []
-        agent_vars_to_log = agent.get_agent_defining_vars()
-        et_metrics_per_var = agent.get_last_early_termination_metrics()
-        for var_name in agent_vars_to_log:
-            metrics_for_this_var = et_metrics_per_var.get(var_name, {}) # Obtener el sub-diccionario
-            self.log(f'patience_M_{var_name}', metrics_for_this_var.get('patience_M', np.nan))
-            self.log(f'no_improvement_counter_c_hat_{var_name}', metrics_for_this_var.get('c_hat', np.nan))
-            self.log(f'penalty_beta_{var_name}', metrics_for_this_var.get('beta', np.nan))
-            self.log(f'improvement_metric_value_{var_name}', metrics_for_this_var.get('current_metric', np.nan))
-            self.log(f'last_improvement_metric_value_{var_name}', metrics_for_this_var.get('last_metric', np.nan))
-            self.log(f'requested_early_termination_{var_name}', bool(metrics_for_this_var.get('requested_et', False)))
+    def log_early_termination_metrics(self, agent_et_log: 'RLAgent'):
+        if not agent_et_log.early_termination_enabled: return # No loguear si ET está desactivado en el agente
+
+        agent_gains_et = agent_et_log.get_agent_defining_vars()
+        et_metrics_snapshot = agent_et_log.get_last_early_termination_metrics()
+        
+        for gain_et_log in agent_gains_et:
+            metrics_for_gain = et_metrics_snapshot.get(gain_et_log, {}) # Default a dict vacío
+            self.log(f'patience_M_{gain_et_log}', metrics_for_gain.get('patience_M', np.nan))
+            self.log(f'no_improvement_counter_c_hat_{gain_et_log}', metrics_for_gain.get('c_hat', np.nan))
+            self.log(f'penalty_beta_{gain_et_log}', metrics_for_gain.get('beta', np.nan))
+            self.log(f'improvement_metric_value_{gain_et_log}', metrics_for_gain.get('current_metric_value', np.nan))
+            self.log(f'last_improvement_metric_value_{gain_et_log}', metrics_for_gain.get('last_metric_value', np.nan))
+            self.log(f'requested_early_termination_{gain_et_log}', bool(metrics_for_gain.get('requested_et_flag', False)))

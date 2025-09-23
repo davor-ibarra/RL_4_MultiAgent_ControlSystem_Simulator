@@ -1,114 +1,119 @@
 # components/simulators/pendulum_virtual_simulator.py
 import numpy as np
-import pandas as pd
+import pandas as pd # Para pd.notna/isna
 import logging
-from typing import Any, Dict, Optional, Tuple
-import copy
+from typing import Any, Dict, Optional, Tuple, List
+import copy # Para deepcopy
 
 from interfaces.virtual_simulator import VirtualSimulator
 from interfaces.dynamic_system import DynamicSystem
 from interfaces.controller import Controller
 from interfaces.reward_function import RewardFunction
+from interfaces.stability_calculator import BaseStabilityCalculator
 
-logger = logging.getLogger(__name__) # Logger específico del módulo
+logger = logging.getLogger(__name__)
 
 class PendulumVirtualSimulator(VirtualSimulator):
     def __init__(self,
-                 system: DynamicSystem,
-                 controller: Controller, # Plantilla del controlador
-                 reward_function: RewardFunction,
-                 dt: Optional[float] # Viene de environment.simulation.dt
+                 system_template: DynamicSystem,
+                 controller_template: Controller,
+                 reward_function_template: RewardFunction,
+                 stability_calculator_template: BaseStabilityCalculator,
+                 dt_sec_value: float # dt_sec, no opcional
                 ):
         logger.info("[PendulumVirtualSimulator] Initializing...")
 
-        if not isinstance(system, DynamicSystem): raise TypeError("system must implement DynamicSystem.")
-        if not isinstance(controller, Controller): raise TypeError("controller (template) must implement Controller.")
-        if not isinstance(reward_function, RewardFunction): raise TypeError("reward_function must implement RewardFunction.")
-        self.system_template = system # Guardar como plantilla
-        self.controller_template = controller # Guardar como plantilla
-        self.reward_function_template = reward_function # Guardar como plantilla
+        # Validaciones estructurales mínimas en el constructor (Fail-Fast para DI)
+        if not hasattr(system_template, 'apply_action') or not hasattr(system_template, 'reset'):
+            raise TypeError("system_template_instance must behave like DynamicSystem.")
+        if not hasattr(controller_template, 'compute_action') or \
+           not hasattr(controller_template, 'update_params') or \
+           not hasattr(controller_template, 'reset_internal_state'): # Método esperado
+            raise TypeError("controller_template_instance must provide core Controller methods.")
+        if not hasattr(reward_function_template, 'calculate'):
+            raise TypeError("reward_function_template_instance must behave like RewardFunction.")
+        if not hasattr(stability_calculator_template, 'calculate_instantaneous_stability'): # <<< AÑADIR VALIDACIÓN
+            raise TypeError("stability_calculator_template must behave like BaseStabilityCalculator.")
+        
+        self.system_tpl = system_template
+        self.controller_tpl = controller_template
+        self.reward_func_tpl = reward_function_template
+        self.stability_calc_tpl = stability_calculator_template
 
-        if dt is None or not isinstance(dt, (float, int)) or dt <= 0 or not np.isfinite(dt):
-             raise ValueError(f"dt ({dt}) must be a positive finite number.")
-        self.dt = float(dt)
+        # dt_sec_value se asume validado por config_loader/DI (positivo, finito)
+        self.sim_dt_sec = float(dt_sec_value)
 
-        # Validar métodos necesarios en la plantilla del controlador
-        required_ctrl_methods = ['reset_internal_state', 'update_params', 'compute_action']
-        missing_methods = [m for m in required_ctrl_methods if not hasattr(self.controller_template, m)]
-        if missing_methods:
-             raise AttributeError(f"Controller template ({type(controller).__name__}) is missing required methods: {missing_methods}")
-
-        logger.info(f"[PendulumVirtualSimulator] Initialized with dt={self.dt:.4f}.")
+        logger.info(f"[PendulumVirtualSimulator] Initialized with dt_sec={self.sim_dt_sec:.4f}.")
 
     def run_interval_simulation(self,
-                                initial_state_vector: Any,
-                                start_time: float,
-                                duration: float,
-                                controller_gains_dict: Dict[str, float]
-                               ) -> Tuple[float, float]:
-        #logger.debug(f"[VirtualSim:run] Start: InitialState={np.round(initial_state_vector,3) if isinstance(initial_state_vector, np.ndarray) else initial_state_vector}, Duration={duration:.3f}, Gains={controller_gains_dict}")
-        if duration <= 0: return 0.0, 1.0 # Recompensa 0, estabilidad perfecta si no hay duración
+                                initial_state_vec: Any, # Numpy array esperado
+                                interval_start_time: float,
+                                interval_duration: float,
+                                fixed_gains_map: Dict[str, float] # {'kp': val, 'ki': val, 'kd': val}
+                               ) -> Tuple[float, float]: # (total_reward, avg_stability_score)
+        
+        # Asumir que las entradas son válidas (tipos y valores finitos).
+        # Si interval_duration es muy pequeño, num_steps será 0 o 1, lo cual es manejado.
+        
+        num_steps = max(1, int(round(interval_duration / self.sim_dt_sec)))
+        
+        # Crear copias profundas para esta simulación virtual aislada
+        virt_system = copy.deepcopy(self.system_tpl)
+        virt_controller = copy.deepcopy(self.controller_tpl)
+        virt_reward_func = copy.deepcopy(self.reward_func_tpl)
+        virt_stability_calc = copy.deepcopy(self.stability_calc_tpl)
 
-        try:
-            virtual_state = np.array(initial_state_vector, dtype=float).flatten()
-            if virtual_state.shape != (4,): raise ValueError(f"Invalid initial_state_vector shape: {virtual_state.shape}")
-            if not np.all(np.isfinite(virtual_state)): raise ValueError(f"initial_state_vector contains NaN/inf: {virtual_state}")
-            if not all(g in controller_gains_dict for g in ['kp', 'ki', 'kd']): raise ValueError(f"Missing gains in controller_gains_dict: {controller_gains_dict.keys()}")
-            kp_v, ki_v, kd_v = map(float, [controller_gains_dict['kp'], controller_gains_dict['ki'], controller_gains_dict['kd']])
-            if not all(np.isfinite(k) for k in [kp_v, ki_v, kd_v]): raise ValueError(f"Virtual gains contain NaN/inf: {controller_gains_dict}")
-        except (ValueError, TypeError) as e:
-             logger.error(f"[VirtualSim:run] Invalid input parameters: {e}. Returning (0.0, 1.0).")
-             return 0.0, 1.0 # Default: 0 recompensa, perfecta estabilidad
+        # Configurar el controlador virtual
+        virt_controller.reset_internal_state() # Limpiar estado interno (ej. integral error)
+        virt_controller.update_params( # Asume que fixed_gains_map tiene kp, ki, kd
+            fixed_gains_map.get('kp', 0.0),
+            fixed_gains_map.get('ki', 0.0),
+            fixed_gains_map.get('kd', 0.0)
+        )
 
-        virtual_time = float(start_time)
-        accumulated_reward: float = 0.0
-        accumulated_w_stab: float = 0.0 # Suma de w_stab, se promediará
-        num_steps = max(1, int(round(duration / self.dt)))
+        current_virt_state = np.array(initial_state_vec, dtype=float).flatten() # Asegurar que es un array numpy
+        current_virt_time = float(interval_start_time)
+        
+        total_reward_accum = 0.0
+        stability_scores_list: List[float] = []
 
-        # Crear copias profundas de los componentes para esta simulación virtual
-        # Esto asegura aislamiento completo del estado del entorno real.
-        virtual_system = copy.deepcopy(self.system_template)
-        virtual_controller = copy.deepcopy(self.controller_template)
-        virtual_reward_func = copy.deepcopy(self.reward_function_template)
+        for _ in range(num_steps):
+            goal_reached_virtual_step = False
+            state_at_virt_step_s = np.copy(current_virt_state) # S
+            
+            # 1. Acción del controlador virtual
+            control_force_virt_a = virt_controller.compute_action(state_at_virt_step_s)
+            # No validar control_force_virt_a; se asume que el controlador devuelve un float.
+            
+            # 2. Aplicar acción al sistema virtual
+            next_virt_state_s_prime = virt_system.apply_action(
+                state_at_virt_step_s, float(control_force_virt_a),
+                current_virt_time, self.sim_dt_sec
+            )
+            # Si apply_action falla, propagará el error.
 
-        try:
-            virtual_controller.reset_internal_state() # Resetear estado interno del controlador copiado
-            virtual_controller.update_params(kp_v, ki_v, kd_v) # Aplicar ganancias fijas
+            # 3. Calcular recompensa y estabilidad del paso virtual
+            reward_step_virt = virt_reward_func.calculate(
+                state_s=state_at_virt_step_s, action_a=float(control_force_virt_a),
+                next_state_s_prime=next_virt_state_s_prime,
+                current_episode_time_sec=current_virt_time, dt_sec=self.sim_dt_sec,
+                goal_reached_in_step=goal_reached_virtual_step # << Flag for Bonus
+            )
+            stability_step_virt = virt_stability_calc.calculate_instantaneous_stability(next_virt_state_s_prime) # type: ignore
+            total_reward_accum += float(reward_step_virt) # Asumir que reward_step_virt es float
+            stability_scores_list.append(float(stability_step_virt)) # Asumir que stability_step_virt es float
 
-            for _ in range(num_steps):
-                current_virtual_state_for_reward = np.copy(virtual_state)
-                virtual_force = virtual_controller.compute_action(virtual_state)
-                virtual_force_f = float(virtual_force) if np.isfinite(virtual_force) else 0.0
+            current_virt_state = next_virt_state_s_prime
+            current_virt_time += self.sim_dt_sec
+        
+        # Limpieza explícita de los clones (opcional, Python GC debería hacerlo, pero puede ayudar)
+        del virt_system, virt_controller, virt_reward_func, virt_stability_calc
+        # gc.collect() # Podría ser excesivo llamarlo aquí siempre
 
-                next_virtual_state = virtual_system.apply_action(virtual_state, virtual_force_f, virtual_time, self.dt)
-                if not isinstance(next_virtual_state, np.ndarray) or not np.all(np.isfinite(next_virtual_state)):
-                     logger.warning(f"[VirtualSim:run] System returned invalid next_state: {next_virtual_state}. Terminating virtual run.")
-                     return 0.0, 1.0 # Fallo -> 0 recompensa, estabilidad neutra
+        avg_stability_score = np.nanmean(stability_scores_list) if stability_scores_list else 1.0
+        # Asegurar que los retornos sean finitos
+        final_total_reward = float(total_reward_accum) if pd.notna(total_reward_accum) and np.isfinite(total_reward_accum) else 0.0
+        final_avg_stability = float(avg_stability_score) if pd.notna(avg_stability_score) and np.isfinite(avg_stability_score) else 1.0
 
-                inst_reward, w_stab_v = virtual_reward_func.calculate(
-                    state=current_virtual_state_for_reward,
-                    action=virtual_force_f,
-                    next_state=next_virtual_state,
-                    t=virtual_time
-                )
-                accumulated_reward += inst_reward if np.isfinite(inst_reward) else 0.0
-                accumulated_w_stab += w_stab_v if np.isfinite(w_stab_v) else 0.0 # Default a 0 si w_stab es inválido
-
-                virtual_state = next_virtual_state
-                virtual_time += self.dt
-        except Exception as e:
-            logger.error(f"[VirtualSim:run] Unexpected error during virtual simulation: {e}", exc_info=True)
-            return 0.0, 1.0 # Fallo -> 0 recompensa, estabilidad neutra
-        finally:
-            # Asegurar limpieza de las copias
-            del virtual_system, virtual_controller, virtual_reward_func
-
-        final_reward = float(accumulated_reward)
-        avg_w_stab = (accumulated_w_stab / num_steps) if num_steps > 0 else 1.0
-        if not np.isfinite(final_reward):
-            logger.warning(f"[VirtualSim:run] Final virtual reward is not finite ({final_reward}). Returning 0.0."); final_reward = 0.0
-        if not np.isfinite(avg_w_stab):
-            logger.warning(f"[VirtualSim:run] Average virtual w_stab is not finite ({avg_w_stab}). Returning 1.0."); avg_w_stab = 1.0
-
-        #logger.debug(f"[VirtualSim:run] Finish: TotalReward={final_reward:.4f}, AvgWStab={avg_w_stab:.4f}")
-        return final_reward, avg_w_stab
+        # logger.debug(f"[PendulumVirtualSimulator] Virtual run complete. Gains={fixed_gains_map}. Reward={final_total_reward:.3f}, AvgStability={final_avg_stability:.3f}")
+        return final_total_reward, final_avg_stability

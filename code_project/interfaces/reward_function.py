@@ -6,32 +6,39 @@ from typing import Tuple, Any, Dict, Optional
 class RewardFunction(ABC):
     """
     Interface for reward calculation components.
-    Defines methods to calculate reward and stability per step, and update stats.
+    Defines methods to calculate reward per step, and update stats.
     """
 
     @abstractmethod
-    def calculate(self, state: Any, action: Any, next_state: Any, t: float) -> Tuple[float, float]:
+    def calculate(self, 
+                  state_s: Any, 
+                  action_a: Any, 
+                  next_state_s_prime: Any, 
+                  current_episode_time_sec: float,
+                  dt_sec: float,
+                  goal_reached_in_step: bool
+                  ) -> float:
         """
-        Calculates the instantaneous reward value and a stability score (w_stab)
-        for the transition from `state` to `next_state` given `action` at time `t`.
+        Calculates the instantaneous reward value for the transition from 
+        `state_s` to `next_state_s_prime` given `action_a`.
 
         The method for calculating the reward value depends on the implementing class's
-        configuration (e.g., 'gaussian' or using an injected 'stability_calculator').
-
-        The stability score (w_stab) should be calculated if a StabilityCalculator
-        component is available, otherwise it should default to a neutral value (e.g., 1.0).
+        configuration and may include penalties or bonuses.
 
         Args:
-            state (Any): State before the action.
-            action (Any): Action taken (e.g., force).
-            next_state (Any): Resulting state after action and dt.
-            t (float): Current simulation time.
+            state_s (Any): State before the action.
+            action_a (Any): Action taken (e.g., force).
+            next_state_s_prime (Any): Resulting state after action and dt.
+            current_episode_time_sec (float): Current simulation time within the episode.
+            dt_sec (float): The time duration of the current simulation step.
+            goal_reached_in_step (bool): Goal reached in step flag.
+
 
         Returns:
-            Tuple[float, float]: A tuple (reward_value, stability_score).
-                                 Values should be finite floats. Implementations should
-                                 handle internal errors and return defaults (e.g., 0.0, 1.0)
-                                 instead of raising exceptions for calculation issues.
+            float: The calculated reward value.
+                   Values should be finite floats. Implementations should
+                   handle internal errors and return defaults (e.g., 0.0)
+                   instead of raising exceptions for calculation issues.
         """
         pass
 
@@ -39,11 +46,17 @@ class RewardFunction(ABC):
     def update_calculator_stats(self, episode_metrics_dict: Dict, current_episode: int):
         """
         Updates internal statistics of components used by the reward function
-        (like an adaptive stability calculator), based on data from a completed episode.
-        Implementations can leave this empty if no adaptive components are used.
+        (like an adaptive stability calculator, if the reward function *also* uses it for some reason,
+         though primary adaptive updates for stability score happen directly in BaseStabilityCalculator).
+        Implementations can leave this empty if no adaptive components are used directly by the reward logic.
 
         Args:
             episode_metrics_dict (Dict): Dictionary with lists of metrics from the episode.
             current_episode (int): The index of the completed episode.
         """
+        pass
+
+    @abstractmethod
+    def reset(self):
+        """Resets the reward calculators params to its absolute initial configuration."""
         pass

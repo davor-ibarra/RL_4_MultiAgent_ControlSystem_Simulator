@@ -1,54 +1,45 @@
 # factories/agent_factory.py
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Callable
 from interfaces.rl_agent import RLAgent
-from interfaces.reward_strategy import RewardStrategy # Para type check
-from components.agents.pid_qlearning_agent import PIDQLearningAgent
+from interfaces.reward_strategy import RewardStrategy # Para validación de tipo
 
-logger = logging.getLogger(__name__) # Logger específico del módulo
+# No se importa PIDQLearningAgent aquí directamente.
+
+logger = logging.getLogger(__name__)
 
 class AgentFactory:
     def __init__(self):
-        logger.info("[AgentFactory] Instance created.")
+        self._creators: Dict[str, Callable[..., RLAgent]] = {}
+        logger.info("[AgentFactory] Instance created. Ready to register agent creators.")
 
-    def create_agent(self, agent_type: str, agent_params: Dict[str, Any]) -> RLAgent:
-        # agent_params ya contiene reward_strategy_instance, state_config, gain_step,
-        # variable_step, shadow_baseline_params, etc., inyectados por DI Container.
-        logger.info(f"[AgentFactory:create_agent] Attempting to create agent type: {agent_type}")
-        logger.debug(f"[AgentFactory:create_agent] Received agent_params keys: {list(agent_params.keys())}")
+    def register_agent_type(self, agent_type_name: str, creator_func: Callable[..., RLAgent]):
+        if agent_type_name in self._creators:
+            logger.warning(f"[AgentFactory:register] Overwriting creator for agent type: {agent_type_name}")
+        self._creators[agent_type_name] = creator_func
+        logger.info(f"[AgentFactory:register] Agent type '{agent_type_name}' registered with creator: {getattr(creator_func, '__name__', str(creator_func))}")
 
-        # Validar presencia de reward_strategy_instance (esencial)
-        reward_strategy_instance = agent_params.get('reward_strategy_instance') # Extraerla primero
-        if not isinstance(reward_strategy_instance, RewardStrategy):
-            msg = f"CRITICAL: 'reward_strategy_instance' in agent_params is missing or not a RewardStrategy (Type: {type(reward_strategy_instance).__name__})."
-            logger.critical(f"[AgentFactory:create_agent] {msg}")
-            raise TypeError(msg) # Fail-Fast
+    def create_agent(self, agent_type: str, agent_constructor_params: Dict[str, Any]) -> RLAgent:
+        """
+        Crea una instancia de RLAgent.
+        agent_constructor_params es un diccionario que contiene todos los argumentos
+        nombrados que el constructor del agente espera (incluyendo 'reward_strategy').
+        """
+        logger.info(f"[AgentFactory:create_agent] Attempting agent type: '{agent_type}'")
+        # logger.debug(f"[AgentFactory:create_agent] With constructor_params keys: {list(agent_constructor_params.keys())}")
 
-        # Crear una copia de agent_params para pasarla como **kwargs
-        # y ELIMINAR 'reward_strategy_instance' de esta copia para evitar el TypeError.
-        constructor_kwargs = agent_params.copy()
-        if 'reward_strategy_instance' in constructor_kwargs: del constructor_kwargs['reward_strategy_instance']
-        if 'early_termination_config' in constructor_kwargs and 'early_termination' in constructor_kwargs: del constructor_kwargs['early_termination']
+        creator = self._creators.get(agent_type)
+        if not creator:
+            error_msg = f"Unknown agent type specified: '{agent_type}'. Available types: {list(self._creators.keys())}"
+            logger.critical(f"[AgentFactory:create_agent] {error_msg}")
+            raise ValueError(error_msg)
 
-        agent: RLAgent
-        try:
-            if agent_type == 'pid_qlearning':
-                logger.debug(f"[AgentFactory:create_agent] Creating PIDQLearningAgent. Passing reward_strategy explicitly and other params via **kwargs (keys: {list(constructor_kwargs.keys())}).")
-                agent = PIDQLearningAgent(
-                    reward_strategy=reward_strategy_instance, # Argumento nombrado explícito
-                    **constructor_kwargs # El resto de params desempaquetados
-                )
-            # --- Añadir otros tipos de agente aquí ---
-            # elif agent_type == 'other_agent_type':
-            #     agent = OtherAgentClass(reward_strategy=reward_strategy_instance, **constructor_kwargs)
-            else:
-                raise ValueError(f"Unknown agent type specified: {agent_type}")
-
-            logger.info(f"[AgentFactory:create_agent] Agent '{type(agent).__name__}' created successfully.")
-            return agent
-        except (ValueError, TypeError) as e_constr:
-            logger.error(f"[AgentFactory:create_agent] Error constructing agent '{agent_type}': {e_constr}", exc_info=True)
-            raise
-        except Exception as e_unexp:
-            logger.error(f"[AgentFactory:create_agent] Unexpected error creating agent '{agent_type}': {e_unexp}", exc_info=True)
-            raise RuntimeError(f"Unexpected error creating agent '{agent_type}'") from e_unexp
+        # Validación mínima de que reward_strategy (requerida por PIDQLearningAgent) está y es del tipo correcto.
+        # El resto de los params son validados por el constructor del agente.
+        if 'reward_strategy' not in agent_constructor_params or \
+           not isinstance(agent_constructor_params['reward_strategy'], RewardStrategy):
+            error_msg_rs = "Agent constructor_params missing 'reward_strategy' or it's not a RewardStrategy instance."
+            logger.critical(f"[AgentFactory:create_agent] {error_msg_rs}")
+            raise TypeError(error_msg_rs)
+            
+        return creator(**agent_constructor_params)

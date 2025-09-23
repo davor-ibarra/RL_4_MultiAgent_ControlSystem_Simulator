@@ -3,167 +3,200 @@
 # ========================================
 environment:
   type: pendulum_environment
-  results_folder: 'results_history' # Base folder for saving results
-  # Data config
-  episodes_per_file: 250
-  save_agent_state: true
-  agent_state_save_frequency: 2000
-  # Initial Conditions for Episodes
+  # Initial conditions for Episodes
   initial_conditions:
-    x0: [0.0, 0.0, 0.0349066, 0.0] # 0.0349066(2°) 0.0873 (5°) 0.1746 (10°)
+    x0: [0.0, 0.0, 0.0873, 0.0] # 0.0349066(2°) 0.0873 (5°) 0.1746 (10°)
   # Simulation Manager
   simulation:
-    max_episodes: 2             # Maximum number of episodes to run
-    total_time: 5.0             # Total simulation time per episode (s)
-    dt: 0.001                   # Simulation time step (s)
-    decision_interval: 0.01     # Time between agent decisions (s) - must be multiple of dt
+    max_episodes: 10000                # Maximum number of episodes to run
+    episode_duration_sec: 5.0          # Total simulation time per episode (s)
+    dt_sec: 0.001                      # Simulation time step (s)
+    agent_decision_period_sec: 0.01    # Time between agent decisions (s) - must be multiple of dt_sec
     # Boundary constraint
-    use_cart_limit: true
-    cart_limit: 5.0
-    use_angle_limit: true
-    angle_limit: 1.0472
+    enable_cart_pos_limit: true
+    cart_pos_limit_m: 5.0
+    enable_angle_limit: true
+    pendulum_angle_limit_rad: 1.0472
     # Stabilization Criteria
     stabilization_criteria:
+      pendulum_and_cart: false
       angle_threshold: 0.001
       velocity_threshold: 0.005
-    # 
+      cart_position_threshold: 0.05
+      cart_velocity_threshold: 0.05
   # --- Dynamic System ---
   system:
     type: inverted_pendulum
     params:
-      m1: 5.0                    # Mass of the cart (kg)
-      m2: 1.0                    # Mass of the pendulum bob (kg)
-      l: 2.0                     # Length of the pendulum rod (m)
-      g: 9.81                    # Acceleration due to gravity (m/s^2)
-      cr: 0.0                    # Damping coefficient of the cart (friction)
-      ca: 0.0                    # Damping coefficient of the pendulum pivot (friction)
+      mass_cart_kg: 5.0              # Mass of the cart (kg)
+      mass_pendulum_kg: 1.0          # Mass of the pendulum bob (kg)
+      l: 2.0                         # Length of the pendulum rod (m)
+      g: 9.81                        # Acceleration due to gravity (m/s^2)
+      cart_friction_coef: 0.0        # Damping coefficient of the cart (friction)
+      pivot_friction_coef: 0.0       # Damping coefficient of the pendulum pivot (friction)
   # --- Controller ---
   controller:
     type: pid
     params:
       kp: 10.0                   # Initial Proportional gain
-      ki: 0.0                    # Initial Integral gain
-      kd: 0.0                    # Initial Derivative gain
+      ki: 10.0                    # Initial Integral gain
+      kd: 10.0                    # Initial Derivative gain
       setpoint: 0.0              # Target value for the controlled variable (pendulum angle = 0 rad)
+      anti_windup:
+        enabled: false
+        use_back_calculation_formula: false    # I(t) = (Kp(t-1)*error(t-1) + Ki(t-1)*I(t-1)*dt - Kp(t)*error(t))/Ki(t)
+        #output_min: -10000.0       # Min force applicable by the cart's actuator
+        #output_max: 10000.0        # Max force applicable by the cart's actuator
     # PID Adaptation Specifics
     pid_adaptation:
-      enabled: true
-      gain_step: 5.0
-      variable_step: false
-      params:
-        # gain_step: {kp: 5.0, ki: 1.0, kd: 0.5} # Example if variable_step=true
-      reset_gains_each_episode: true
+      enabled: true              # Requiere REPARACIÓN IMPLEMENTACIÓN
+      gain_delta: 10.0
+      per_gain_delta: false
+      # params:                                             # Si per_gain_delta es true, gain_delta sería un dict aquí
+        # gain_delta: {kp: 5.0, ki: 1.0, kd: 0.5}           # Ejemplo si per_gain_delta=true
+      reset_policy_on_episode_end: full_params_and_state    # internal_state_only, full_params_and_state
   # --- Agent ---
   agent:
     type: pid_qlearning
     params:
       num_actions: 3             # Number of actions per gain: 0=decrease, 1=maintain, 2=increase
-      discount_factor: 0.98      # Q-learning discount factor (gamma)
+      discount_factor: 0.99      # Q-learning discount factor (gamma)
       # Epsilon (Exploration Rate) Settings
       epsilon: 1.0               # Initial exploration rate
-      epsilon_decay: 0.9997122  # Decay factor per episode | 0.9997122 (8000)| 0.999846506108527 (15000)
+      epsilon_decay: 0.9997122  # Decay factor per episode | 0.99942452 (4000) | 0.9997122 (8000)| 0.999846506108527 (15000)
       epsilon_min: 0.1           # Minimum exploration rate
       use_epsilon_decay: true    # Enable/disable epsilon decay
       # Learning Rate (Alpha) Settings
-      learning_rate: 1.0         # Initial learning rate for Q-updates
-      learning_rate_decay: 0.999425 # Decay factor per episode | 0.999425 (8000) | 0.999693035777428 (15000)
+      learning_rate: 0.01         # Initial learning rate for Q-updates
+      learning_rate_decay: 0.999425 # Decay factor per episode | 0.99885 (4000) | 0.999425 (8000) | 0.999693035777428 (15000)
       learning_rate_min: 0.01    # Minimum learning rate
-      use_learning_rate_decay: true # Enable/disable learning rate decay
+      use_learning_rate_decay: false # Enable/disable learning rate decay
       # Agents and State Discretization Configuration
       state_config:
         # Base State Variables
-        kp:                      {enabled_agent: true, min: 0.0, max: 100.0, bins: 21, state_vars: ['angle']} # state_vars: ['angle','angular_velocity','ki', etc.]
-        ki:                      {enabled_agent: true, min: 0.0, max: 100.0, bins: 21, state_vars: ['angle']}
-        kd:                      {enabled_agent: true, min: 0.0, max: 100.0, bins: 21, state_vars: ['angle']}
-        angle:                   {enabled_agent: false, min: -0.03491, max: 0.03491, bins: 3, state_vars: []}
+        kp:                      {enabled_agent: true, min: 0.0, max: 200.0, bins: 21, state_vars: []}
+        ki:                      {enabled_agent: true, min: 0.0, max: 200.0, bins: 21, state_vars: []}
+        kd:                      {enabled_agent: true, min: 0.0, max: 200.0, bins: 21, state_vars: []}
+        angle:                   {enabled_agent: false, min: -0.1, max: 0.1, bins: 3, state_vars: []}
         angular_velocity:        {enabled_agent: false, min: -0.61, max: 0.61, bins: 6, state_vars: []}
         cart_position:           {enabled_agent: false, min: -1.0, max: 1.0, bins: 3, state_vars: []}
         cart_velocity:           {enabled_agent: false, min: -1.0, max: 1.0, bins: 3, state_vars: []}
-      # Early termination
-      early_termination:
-        enabled: true
-        improvement_metric_source: "interval_avg_stability" # O "interval_avg_stability"
-        patience_type: "fixed" # "fixed" o "adaptive"
-        initial_patience_kp: 100
-        initial_patience_ki: 100
-        initial_patience_kd: 100
-        min_patience: 20           # Siempre debe ser mayor a 0
-        max_patience: 200
-        patience_adjustment_rate: 1 # eta
-        use_stage_learning_for_base_patience: true # opcional
+      # Patience Agent Settings
+      early_stopping_criteria:
+        enabled: false
+        improvement_metric_source: interval_cumulative_reward # "interval_avg_stability" o "interval_cumulative_reward"
+        patience_type: "adaptive" # "fixed" o "adaptive"
+        initial_patience_kp: 250
+        initial_patience_ki: 250
+        initial_patience_kd: 250
+        min_patience: 25          
+        max_patience: 450
+        patience_adjustment_rate: 10
+        use_stage_learning_for_base_patience: false
         penalty_reward_params:
-          enabled: true
+          enabled: false
           penalty_beta_init_kp: 0.9
           penalty_beta_init_ki: 0.9
           penalty_beta_init_kd: 0.9
   # --- Reward Configuration ---
   reward_setup:
-    # --- 1. Agent Learning Strategy Configuration ---
-    # Defines how the reward R_learn used for the agent's update is derived.
+    # --- 1. Penalty and Bonus Base Configuration ---
+    penalty_instantaneous_reward:
+      enabled: false
+      method: lineal
+      type: fixed
+      penalty_lineal_params:
+        time: 1.0
+    goal_bonus_reward:
+      enabled: false
+      type: "static"                   # "static" | "decay"
+      static_value: 5000.0            # Sólo si type = static
+      decay_type: "none"            # "exponential" | "linear" | "none"  (sólo si type=decay)
+      base_value: 5000.0              # Valor máximo del bono de meta
+      decay_time_constant: 1.0        # tau [s], sólo para decay exponencial o lineal
+      min_value: 1000.0               # Bono mínimo tras decaer
+      # --- Bono de aproximación (zona ampliada) ---
+      approach_bonus:
+        enabled: false
+        angle_range: 0.05             # Rango radianes (mayor que umbral de estabilización)
+        angular_velocity_range: 0.05 # Rango rad/s
+        cart_position_range: 1.0
+        cart_velocity_range: 1.0
+        per_step_bonus: 5.0           # Bono por cada dt dentro de la zona ampliada
+        max_total_bonus: 5000        # Tope máximo acumulado por episodio (None: ilimitado)
+    # --- 2. Agent Learning Strategy Configuration ---
     reward_strategy:
-      type: global # Type of learning strategy. Options: 'global', 'shadow_baseline', 'echo_baseline'
-      # Parameters specific to the chosen strategy:
+      type: weighted_sum_features     # weighted_sum_features, shadow_baseline_delta, echo_virtual_baseline_delta
       strategy_params:
-        global: {}
-        echo_baseline: {}
-        shadow_baseline: # Used if type is 'shadow_baseline'
-          beta: 0.2 # Learning rate for the baseline B(s) update
-          baseline_init_value: 0.0 # Initial value for B(s) entries
-    # --- 2. Reward Calculation Configuration ---
-    # Defines how the instantaneous reward R(s,a,s') is calculated per step.
+        weighted_sum_features: {}
+        echo_virtual_baseline_delta: {}
+        shadow_baseline_delta:         
+          beta: 0.2
+          baseline_init_value: 0.0
+    # --- 3. Reward Calculation Configuration ---
     calculation:
-      method: gaussian # Method for reward calculation. Options: 'gaussian', 'stability_calculator'
-      gaussian_params: # Used if method is 'gaussian'
-        weights:
+      method: weighted_exponential    # weighted_exponential o stability_measure_based
+      weighted_exponential_params:
+        feature_weights:
           angle: 1.0
-          angular_velocity: 0.5
+          angular_velocity: 1.0
           cart_position: 0.0
           cart_velocity: 0.5
           force: 0.5
           time: 0.0
-        scales:
-          angle: 0.1
-          angular_velocity: 0.1
+        feature_scales:
+          angle: 0.08 # Subir lentamente Reward
+          angular_velocity: 0.08 #  Subir lentamente Reward
           cart_position: 1.0
           cart_velocity: 1.0
           force: 10.0
           time: 1.0
-      # --- 3. Stability Score (w_stab) Configuration ---
-      # Defines how the instantaneous stability score (w_stab) is calculated.
-      stability_calculator:
-        #enabled: true # Calculate w_stab? (Required if learning_strategy.type is 'shadow_baseline') DROP
-        type: simple_exponential # Type of stability calculator. Options: 'ira_instantaneous', 'simple_exponential'
-        simple_exponential_params: # Used if type is 'simple_exponential'
-        # Note: This calculator does not have a separate lambda for reward. If calculation.method is 'stability_calculator' with this type, the reward will be equal to w_stab.
-          lambda_weights: # Used for w_stab calculation
+      # --- 4. Stability Score (w_stab) Configuration ---
+      stability_measure:
+        type: exp_decay_metric       # exp_decay_metric, ira_zscore_metric
+        # simple_exponential_params -> exp_decay_metric_params
+        exp_decay_metric_params:
+          feature_decay_coefficients: 
               angle: 1.0
               angular_velocity: 1.0
               cart_position: 0.0
               cart_velocity: 0.5
-          scales: # Used for w_stab calculation
-              angle: 0.1
-              angular_velocity: 0.1
+          feature_scales:
+              angle: 0.08
+              angular_velocity: 0.08
               cart_position: 1.0
               cart_velocity: 1.0
-        ira_instantaneous_params: # Used if type is 'ira_instantaneous_params'
-          lambda: 1.0 # lambda: Sensitivity factor ONLY used if calculation.method is 'stability_calculator'
-          weights:
+        # ira_instantaneous_params -> ira_zscore_metric_params
+        ira_zscore_metric_params: 
+          lambda_factor: 1.0
+          feature_weights:
             angle: 0.1
             angular_velocity: 0.1
             cart_position: 0.0
             cart_velocity: 0.0
-          z_score_epsilon: 1.0e-6
+          epsilon_zscore_denominator: 1.0e-6
           adaptive_stats:
-            enabled: false
-            min_episode: 1000
+            enabled: false                ## REVISAR, hay log.info pero no hay data en SUMMARY
+            min_episode: 3000
             min_sigma: 1.0e-4
           initial_reference_stats:
             angle:            { mu: 0.0, sigma: 0.05 }
             angular_velocity: { mu: 0.0, sigma: 0.05 }
             cart_position:    { mu: 0.0, sigma: 0.5 }
             cart_velocity:    { mu: 0.0, sigma: 0.5 }
-
   # --- End of Reward Configuration ---
+
+
+# ========================================
+# Data Handling Configuration
+# ========================================
+data_handling:
+  output_root: 'results_history' # Base folder for saving results
+  episodes_per_dataset_chunk: 250
+  save_agent_state: true
+  agent_state_save_frequency: 2000
+  config_file: sub_config_data_save.yaml
+
 
 # ========================================
 # Visualization Settings
@@ -176,11 +209,7 @@ visualization:
 # Logging Configuration
 # ========================================
 logging:
-  log_to_file: true                 # Enable/disable logging to file
-  filename: log_simulation_run.log      # Base name for the log file (will be placed in results folder)
-  # List of levels to include in the file (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)
-  # The lowest level specified determines the overall minimum level processed.
+  log_to_file: false
+  filename: log_simulation_run.log
   levels: [DEBUG, INFO, WARNING, ERROR, CRITICAL]
-  # How often (in episodes) to save the current log buffer to the file and clear the buffer
-  # Set to 0 or negative to only save at the very end.
   log_save_frequency: 100

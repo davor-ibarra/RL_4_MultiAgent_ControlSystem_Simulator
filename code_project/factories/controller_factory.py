@@ -1,37 +1,36 @@
 # factories/controller_factory.py
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Callable
 from interfaces.controller import Controller
-from components.controllers.pid_controller import PIDController
 
-logger = logging.getLogger(__name__) # Logger específico del módulo
+# No se importa PIDController aquí directamente.
+
+logger = logging.getLogger(__name__)
 
 class ControllerFactory:
     def __init__(self):
-        logger.info("[ControllerFactory] Instance created.")
+        self._creators: Dict[str, Callable[..., Controller]] = {}
+        logger.info("[ControllerFactory] Instance created. Ready to register controller creators.")
+
+    def register_controller_type(self, controller_type_name: str, creator_func: Callable[..., Controller]):
+        if controller_type_name in self._creators:
+            logger.warning(f"[ControllerFactory:register] Overwriting creator for controller type: {controller_type_name}")
+        self._creators[controller_type_name] = creator_func
+        logger.info(f"[ControllerFactory:register] Controller type '{controller_type_name}' registered with creator: {getattr(creator_func, '__name__', str(creator_func))}")
 
     def create_controller(self, controller_type: str, controller_params: Dict[str, Any]) -> Controller:
-        # controller_params ya contiene 'dt' y otros params del controlador desde DI.
-        logger.info(f"[ControllerFactory:create_controller] Attempting controller type: {controller_type}")
-        logger.debug(f"[ControllerFactory:create_controller] Received controller_params keys: {list(controller_params.keys())}")
-        controller: Controller
+        """
+        Crea una instancia de Controller.
+        controller_params incluye los de config.environment.controller.params y 'dt_sec'.
+        """
+        logger.info(f"[ControllerFactory:create_controller] Attempting controller type: '{controller_type}'")
+        # logger.debug(f"[ControllerFactory:create_controller] With params: {controller_params}")
 
-        try:
-            if controller_type == 'pid':
-                # PIDController validará internamente kp, ki, kd, setpoint, dt
-                logger.debug(f"[ControllerFactory:create_controller] Creating PIDController with **params.")
-                controller = PIDController(**controller_params)
-            # --- Añadir otros tipos de controlador aquí ---
-            # elif controller_type == 'lqr_controller':
-            #     controller = LQRController(**controller_params)
-            else:
-                raise ValueError(f"Unknown controller type specified: {controller_type}")
-
-            logger.info(f"[ControllerFactory:create_controller] Controller '{type(controller).__name__}' created.")
-            return controller
-        except (ValueError, TypeError) as e_constr: # Errores del constructor del controller
-            logger.error(f"[ControllerFactory:create_controller] Error constructing controller '{controller_type}': {e_constr}", exc_info=True)
-            raise
-        except Exception as e_unexp:
-            logger.error(f"[ControllerFactory:create_controller] Unexpected error creating controller '{controller_type}': {e_unexp}", exc_info=True)
-            raise RuntimeError(f"Unexpected error creating controller '{controller_type}'") from e_unexp
+        creator = self._creators.get(controller_type)
+        if not creator:
+            error_msg = f"Unknown controller type specified: '{controller_type}'. Available types: {list(self._creators.keys())}"
+            logger.critical(f"[ControllerFactory:create_controller] {error_msg}")
+            raise ValueError(error_msg)
+        
+        # El constructor del controlador concreto valida sus params.
+        return creator(**controller_params)

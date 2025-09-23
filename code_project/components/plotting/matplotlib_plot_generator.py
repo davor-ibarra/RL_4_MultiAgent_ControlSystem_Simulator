@@ -26,23 +26,23 @@ class MatplotlibPlotGenerator(PlotGenerator):
 
     # --- Método Helper Centralizado para Estilos ---
 
-    def _apply_common_mpl_styles(self, ax: plt.Axes, fig: plt.Figure, plot_config: Dict[str, Any]):
+    def _apply_common_mpl_styles(self, ax: plt.Axes, fig: plt.Figure, plot_config_data: Dict[str, Any]):
         """
         Aplica estilos comunes de Matplotlib a los ejes y figura dados,
         leyendo la configuración desde plot_config['config'].
         Aplica límites y número de ticks de forma estricta.
         """
         # 1. Obtener sub-diccionario de configuración de estilo
-        cfg = plot_config.get('config', {})
-        plot_name = plot_config.get("name", f"plot_{plot_config.get('type', 'unknown')}_{plot_config.get('_internal_plot_index','?')}") # Para logging
+        cfg = plot_config_data.get('config', {})
+        plot_name = plot_config_data.get("name", f"plot_{plot_config_data.get('type', 'unknown')}_{plot_config_data.get('_internal_plot_index','?')}") # Para logging
 
         # 2. --- Títulos y Etiquetas ---
         ax.set_title(cfg.get('title', plot_name), fontsize=cfg.get('title_fontsize', 14))
         # Obtener texto de etiqueta actual o usar variable de config como fallback
         current_xlabel_text = ax.get_xlabel()
         current_ylabel_text = ax.get_ylabel()
-        default_xlabel = current_xlabel_text or plot_config.get('x_variable', '')
-        default_ylabel = current_ylabel_text or plot_config.get('y_variable', '')
+        default_xlabel = current_xlabel_text or plot_config_data.get('x_variable', '')
+        default_ylabel = current_ylabel_text or plot_config_data.get('y_variable', '')
         # Formatear defaults si son strings no vacíos
         final_xlabel = cfg.get('xlabel', default_xlabel.replace('_', ' ').title() if isinstance(default_xlabel, str) and default_xlabel else default_xlabel)
         final_ylabel = cfg.get('ylabel', default_ylabel.replace('_', ' ').title() if isinstance(default_ylabel, str) and default_ylabel else default_ylabel)
@@ -101,7 +101,7 @@ class MatplotlibPlotGenerator(PlotGenerator):
         # 5. --- Grid ---
         grid_visible = cfg.get('grid_on', False)
         # No mostrar grid en heatmaps para evitar desorden visual
-        is_heatmap = plot_config.get('type') == 'heatmap'
+        is_heatmap = plot_config_data.get('type') == 'heatmap'
         ax.grid(visible=(grid_visible and not is_heatmap), linestyle='--', linewidth=0.5, alpha=0.6)
 
         # 6. --- Leyenda ---
@@ -128,8 +128,8 @@ class MatplotlibPlotGenerator(PlotGenerator):
 
 
     # --- Métodos Privados para Cargar Datos (sin cambios) ---
-    def _load_summary_data(self, results_folder: str) -> Optional[pd.DataFrame]:
-        summary_path = os.path.join(results_folder, 'episodes_summary.xlsx')
+    def _load_summary_data(self, output_root_path_plot: str) -> Optional[pd.DataFrame]:
+        summary_path = os.path.join(output_root_path_plot, 'episodes_summary_data.xlsx')
         if not os.path.exists(summary_path): logger.error(f"Archivo de resumen no encontrado: {summary_path}"); return None
         try:
             df = pd.read_excel(summary_path, engine='openpyxl' if self._check_openpyxl() else None)
@@ -137,17 +137,17 @@ class MatplotlibPlotGenerator(PlotGenerator):
             return df
         except Exception as e: logger.error(f"Error cargando archivo de resumen '{summary_path}': {e}", exc_info=True); return None
 
-    def _load_detailed_data(self, results_folder: str) -> Optional[pd.DataFrame]:
+    def _load_detailed_data(self, output_root_path_plot: str) -> Optional[pd.DataFrame]:
         all_aligned_data: List[pd.DataFrame] = []
-        logger.info(f"Buscando archivos simulation_data_ep_*.json en: {results_folder} para datos detallados...")
+        logger.info(f"Buscando archivos simulation_data_ep_*.json en: {output_root_path_plot} para datos detallados...")
         try:
-            files = [f for f in os.listdir(results_folder) if f.startswith("simulation_data_ep_") and f.endswith(".json")]
+            files = [f for f in os.listdir(output_root_path_plot) if f.startswith("simulation_data_ep_") and f.endswith(".json")]
             if not files: logger.warning("No se encontraron archivos de datos detallados."); return None
             try: files.sort(key=lambda name: int(name.split('_ep_')[-1].split('_to_')[0]))
             except (ValueError, IndexError): logger.warning("No se pudo ordenar los archivos de datos detallados.")
             raw_episode_list = []
             for filename in files:
-                filepath = os.path.join(results_folder, filename)
+                filepath = os.path.join(output_root_path_plot, filename)
                 try:
                     with open(filepath, 'r', encoding='utf-8') as f: episodes_in_file = json.load(f)
                     if isinstance(episodes_in_file, list): raw_episode_list.extend([ep for ep in episodes_in_file if isinstance(ep, dict)])
@@ -172,9 +172,9 @@ class MatplotlibPlotGenerator(PlotGenerator):
 
     # --- Métodos Privados para Cargar Datos ---
 
-    def _load_summary_data(self, results_folder: str) -> Optional[pd.DataFrame]:
+    def _load_summary_data(self, output_root_path_plot: str) -> Optional[pd.DataFrame]:
         """Carga los datos de resumen desde episodes_summary.xlsx."""
-        summary_path = os.path.join(results_folder, 'episodes_summary.xlsx')
+        summary_path = os.path.join(output_root_path_plot, 'episodes_summary_data.xlsx')
         if not os.path.exists(summary_path):
             logger.error(f"Archivo de resumen no encontrado: {summary_path}")
             return None
@@ -186,15 +186,15 @@ class MatplotlibPlotGenerator(PlotGenerator):
             logger.error(f"Error cargando archivo de resumen '{summary_path}': {e}", exc_info=True)
             return None
     
-    def _load_detailed_data(self, results_folder: str) -> Optional[pd.DataFrame]:
+    def _load_detailed_data(self, output_root_path_plot: str) -> Optional[pd.DataFrame]:
         """
         Carga y combina datos detallados de archivos simulation_data_ep_*.json.
         (Mantenemos la lógica anterior aquí, aunque HeatmapGenerator tiene una versión similar).
         """
         all_aligned_data: List[pd.DataFrame] = []
-        logger.info(f"Buscando archivos simulation_data_ep_*.json en: {results_folder} para datos detallados...")
+        logger.info(f"Buscando archivos simulation_data_ep_*.json en: {output_root_path_plot} para datos detallados...")
         try:
-            files = [f for f in os.listdir(results_folder) if f.startswith("simulation_data_ep_") and f.endswith(".json")]
+            files = [f for f in os.listdir(output_root_path_plot) if f.startswith("simulation_data_ep_") and f.endswith(".json")]
             if not files:
                 logger.warning("No se encontraron archivos de datos detallados para plots que los requieran.")
                 return None
@@ -205,7 +205,7 @@ class MatplotlibPlotGenerator(PlotGenerator):
 
             raw_episode_list = []
             for filename in files:
-                filepath = os.path.join(results_folder, filename)
+                filepath = os.path.join(output_root_path_plot, filename)
                 try:
                     with open(filepath, 'r', encoding='utf-8') as f:
                         episodes_in_file = json.load(f)
@@ -245,11 +245,11 @@ class MatplotlibPlotGenerator(PlotGenerator):
             logger.error(f"Error inesperado cargando datos detallados: {e_main}", exc_info=True)
             return None
 
-    def _load_heatmap_data(self, results_folder: str, plot_config: Dict) -> Optional[pd.DataFrame]:
+    def _load_heatmap_data(self, output_root_path_plot: str, plot_config_data: Dict) -> Optional[pd.DataFrame]:
         """Carga los datos pre-calculados para un heatmap específico desde data_heatmaps.xlsx."""
-        heatmap_data_path = os.path.join(results_folder, 'data_heatmaps.xlsx')
-        plot_name_cfg = plot_config.get('name')
-        plot_index = plot_config.get('_internal_plot_index', '?') # Usar índice interno
+        heatmap_data_path = os.path.join(output_root_path_plot, 'data_heatmaps.xlsx')
+        plot_name_cfg = plot_config_data.get('name')
+        plot_index = plot_config_data.get('_internal_plot_index', '?') # Usar índice interno
 
         # 2.1: Determinar nombre de hoja consistentemente con HeatmapGenerator
         if plot_name_cfg:
@@ -293,8 +293,8 @@ class MatplotlibPlotGenerator(PlotGenerator):
             if df_grid.index.name is None or df_grid.columns.name is None:
                 logger.warning(f"Heatmap ('{log_name_ref}'): No se pudieron determinar los nombres de los ejes (variables originales) desde la hoja '{sheet_name}'. Se usarán x/y variables de la config.")
                 # Intentar asignar desde config si faltan (deben coincidir con cómo guardó HeatmapGenerator)
-                df_grid.index.name = df_grid.index.name or plot_config.get('y_variable', 'Y')
-                df_grid.columns.name = df_grid.columns.name or plot_config.get('x_variable', 'X')
+                df_grid.index.name = df_grid.index.name or plot_config_data.get('y_variable', 'Y')
+                df_grid.columns.name = df_grid.columns.name or plot_config_data.get('x_variable', 'X')
 
             return df_grid
         except ValueError as e_sheet: # Específicamente para error de nombre de hoja
@@ -320,20 +320,20 @@ class MatplotlibPlotGenerator(PlotGenerator):
 
     # --- Método Principal de Generación ---
 
-    def generate_plot(self, plot_config: Dict[str, Any], results_folder: str):
+    def generate_plot(self, plot_config_data: Dict[str, Any], output_root_path_plot: str):
         """Genera un plot basado en la configuración dada."""
-        plot_type = plot_config.get("type")
-        plot_index = plot_config.get('_internal_plot_index','?') # Índice para logging/defaults
-        plot_name_cfg = plot_config.get("name")
+        plot_type = plot_config_data.get("type")
+        plot_index = plot_config_data.get('_internal_plot_index','?') # Índice para logging/defaults
+        plot_name_cfg = plot_config_data.get("name")
         log_name_ref = f"name='{plot_name_cfg}'" if plot_name_cfg else f"index={plot_index}"
 
         # 2.5: Usar nombre base más informativo si 'name' falta
         plot_name_default = f"plot_{plot_type}_{plot_index}"
         output_filename_default = f"{plot_name_default}.png"
-        output_filename = plot_config.get("output_filename", output_filename_default)
-        output_path = os.path.join(results_folder, output_filename)
+        output_filename = plot_config_data.get("output_filename", output_filename_default)
+        output_path = os.path.join(output_root_path_plot, output_filename)
 
-        style_config = plot_config.get("config", {}) # Sub-diccionario de estilo
+        style_config = plot_config_data.get("config", {}) # Sub-diccionario de estilo
 
         if not plot_type:
             logger.error(f"Plot config ({log_name_ref}) no tiene 'type'. Saltando.")
@@ -343,18 +343,18 @@ class MatplotlibPlotGenerator(PlotGenerator):
 
         # --- Carga de Datos Específica por Tipo ---
         data_loaded: Optional[pd.DataFrame] = None
-        data_source_type = plot_config.get("source") # summary, detailed
+        data_source_type = plot_config_data.get("source") # summary, detailed
 
         if plot_type == "heatmap":
             # Heatmap carga sus datos DENTRO de _generate_heatmap_plot
             pass
         elif data_source_type == "summary":
-            data_loaded = self._load_summary_data(results_folder)
+            data_loaded = self._load_summary_data(output_root_path_plot)
             if data_loaded is None or data_loaded.empty:
                 logger.warning(f"No se pudieron cargar datos de resumen para plot ({log_name_ref}). Se generará un plot vacío si es posible.")
                 # No retornar aún, permitir que la función de ploteo maneje data=None
         elif data_source_type == "detailed":
-            data_loaded = self._load_detailed_data(results_folder)
+            data_loaded = self._load_detailed_data(output_root_path_plot)
             if data_loaded is None or data_loaded.empty:
                 logger.warning(f"No se pudieron cargar datos detallados para plot ({log_name_ref}). Se generará un plot vacío si es posible.")
                 # No retornar aún
@@ -371,20 +371,20 @@ class MatplotlibPlotGenerator(PlotGenerator):
             # --- Dispatching a función de ploteo específica ---
             plot_generated = False # Flag para saber si se llamó a una función de ploteo
             if plot_type == "line":
-                self._generate_line_plot(ax, plot_config, data_loaded)
+                self._generate_line_plot(ax, plot_config_data, data_loaded)
                 plot_generated = True
             elif plot_type == "scatter":
-                self._generate_scatter_plot(ax, plot_config, data_loaded)
+                self._generate_scatter_plot(ax, plot_config_data, data_loaded)
                 plot_generated = True
             elif plot_type == "histogram":
-                self._generate_histogram(ax, plot_config, data_loaded)
+                self._generate_histogram(ax, plot_config_data, data_loaded)
                 plot_generated = True
             elif plot_type == "bar":
-                self._generate_bar_plot(ax, plot_config, data_loaded)
+                self._generate_bar_plot(ax, plot_config_data, data_loaded)
                 plot_generated = True
             elif plot_type == "heatmap":
                 # Pasar fig también porque heatmap necesita añadir colorbar
-                self._generate_heatmap_plot(ax, fig, plot_config, results_folder)
+                self._generate_heatmap_plot(ax, fig, plot_config_data, output_root_path_plot)
                 plot_generated = True
             else:
                 # Este caso no debería ocurrir si type se valida antes, pero por seguridad
@@ -393,7 +393,7 @@ class MatplotlibPlotGenerator(PlotGenerator):
 
             # --- Aplicar Estilos Comunes ---
             # 2.6: Llamar al helper de estilos DESPUÉS de que el plot principal se haya dibujado
-            self._apply_common_mpl_styles(ax, fig, plot_config)
+            self._apply_common_mpl_styles(ax, fig, plot_config_data)
 
             # --- Guardar Plot (solo si se generó algo) ---
             if plot_generated:
@@ -423,10 +423,10 @@ class MatplotlibPlotGenerator(PlotGenerator):
 
     # --- Métodos Privados para cada tipo de Plot ---
 
-    def _generate_line_plot(self, ax, plot_config: Dict, data: Optional[pd.DataFrame]):
+    def _generate_line_plot(self, ax, plot_config_data: Dict, data: Optional[pd.DataFrame]):
         """Genera un gráfico de línea."""
-        style_config = plot_config.get('config', {})
-        plot_name = plot_config.get("name", "line_plot")
+        style_config = plot_config_data.get('config', {})
+        plot_name = plot_config_data.get("name", "line_plot")
         if data is None or data.empty:
             logger.warning(f"Datos vacíos para line plot '{plot_name}'. Se generará plot vacío.")
             ax.text(0.5, 0.5, 'Datos no disponibles', **{'ha':'center', 'va':'center', 'color':'gray'})
@@ -434,8 +434,8 @@ class MatplotlibPlotGenerator(PlotGenerator):
             ax.set_title(style_config.get('title', plot_name), fontsize=style_config.get('title_fontsize', 14))
             return
 
-        x_var = plot_config.get('x_variable')
-        y_var = plot_config.get('y_variable')
+        x_var = plot_config_data.get('x_variable')
+        y_var = plot_config_data.get('y_variable')
         if not x_var or not y_var: raise ValueError(f"Line plot '{plot_name}': Faltan 'x_variable' o 'y_variable'.")
         if x_var not in data.columns or y_var not in data.columns: raise ValueError(f"Line plot '{plot_name}': Columnas '{x_var}' o '{y_var}' no encontradas.")
 
@@ -463,18 +463,18 @@ class MatplotlibPlotGenerator(PlotGenerator):
                         label=y_var) # Añadir label para leyenda automática
             else: logger.warning(f"Line plot '{plot_name}': No quedan datos numéricos válidos después de coerción/filtrado.")
 
-    def _generate_scatter_plot(self, ax, plot_config: Dict, data: Optional[pd.DataFrame]):
+    def _generate_scatter_plot(self, ax, plot_config_data: Dict, data: Optional[pd.DataFrame]):
         """Genera un gráfico de dispersión."""
-        style_config = plot_config.get('config', {})
-        plot_name = plot_config.get("name", "scatter_plot")
+        style_config = plot_config_data.get('config', {})
+        plot_name = plot_config_data.get("name", "scatter_plot")
         if data is None or data.empty:
             logger.warning(f"Datos vacíos para scatter plot '{plot_name}'. Se generará plot vacío.")
             ax.text(0.5, 0.5, 'Datos no disponibles', **{'ha':'center', 'va':'center', 'color':'gray'})
             ax.set_title(style_config.get('title', plot_name), fontsize=style_config.get('title_fontsize', 14))
             return
 
-        x_var = plot_config.get('x_variable')
-        y_var = plot_config.get('y_variable')
+        x_var = plot_config_data.get('x_variable')
+        y_var = plot_config_data.get('y_variable')
         if not x_var or not y_var: raise ValueError(f"Scatter plot '{plot_name}': Faltan 'x_variable' o 'y_variable'.")
         if x_var not in data.columns or y_var not in data.columns: raise ValueError(f"Scatter plot '{plot_name}': Columnas '{x_var}' o '{y_var}' no encontradas.")
 
@@ -493,17 +493,17 @@ class MatplotlibPlotGenerator(PlotGenerator):
                             label=f"{y_var} vs {x_var}") # Label para leyenda
             else: logger.warning(f"Scatter plot '{plot_name}': No quedan datos numéricos válidos.")
 
-    def _generate_histogram(self, ax, plot_config: Dict, data: Optional[pd.DataFrame]):
+    def _generate_histogram(self, ax, plot_config_data: Dict, data: Optional[pd.DataFrame]):
         """Genera un histograma."""
-        style_config = plot_config.get('config', {})
-        plot_name = plot_config.get("name", "histogram")
+        style_config = plot_config_data.get('config', {})
+        plot_name = plot_config_data.get("name", "histogram")
         if data is None or data.empty:
             logger.warning(f"Datos vacíos para histogram '{plot_name}'. Se generará plot vacío.")
             ax.text(0.5, 0.5, 'Datos no disponibles', **{'ha':'center', 'va':'center', 'color':'gray'})
             ax.set_title(style_config.get('title', plot_name), fontsize=style_config.get('title_fontsize', 14))
             return
 
-        variable = plot_config.get('variable')
+        variable = plot_config_data.get('variable')
         if not variable: raise ValueError(f"Histogram '{plot_name}': Falta 'variable'.")
         if variable not in data.columns: raise ValueError(f"Histogram '{plot_name}': Columna '{variable}' no encontrada.")
 
@@ -518,17 +518,17 @@ class MatplotlibPlotGenerator(PlotGenerator):
                 alpha=style_config.get('alpha', 0.7),
                 density=style_config.get('density', False))
 
-    def _generate_bar_plot(self, ax, plot_config: Dict, data: Optional[pd.DataFrame]):
+    def _generate_bar_plot(self, ax, plot_config_data: Dict, data: Optional[pd.DataFrame]):
         """Genera un gráfico de barras."""
-        style_config = plot_config.get('config', {})
-        plot_name = plot_config.get("name", "bar_plot")
+        style_config = plot_config_data.get('config', {})
+        plot_name = plot_config_data.get("name", "bar_plot")
         if data is None or data.empty:
             logger.warning(f"Datos vacíos para bar plot '{plot_name}'. Se generará plot vacío.")
             ax.text(0.5, 0.5, 'Datos no disponibles', **{'ha':'center', 'va':'center', 'color':'gray'})
             ax.set_title(style_config.get('title', plot_name), fontsize=style_config.get('title_fontsize', 14))
             return
 
-        variable = plot_config.get('variable') # Variable categórica
+        variable = plot_config_data.get('variable') # Variable categórica
         if not variable: raise ValueError(f"Bar plot '{plot_name}': Falta 'variable'.")
         if variable not in data.columns: raise ValueError(f"Bar plot '{plot_name}': Columna '{variable}' no encontrada.")
 
@@ -545,7 +545,7 @@ class MatplotlibPlotGenerator(PlotGenerator):
                     # Contar ocurrencias de 'variable' dentro de cada grupo
                     counts = df.groupby('episode_group')[variable].value_counts().unstack(fill_value=0)
                     # 2.7: Asignar título de leyenda explícitamente para barras apiladas
-                    plot_config['config']['legend_title'] = variable.replace('_',' ').title()
+                    plot_config_data['config']['legend_title'] = variable.replace('_',' ').title()
                 else: logger.warning(f"Bar plot '{plot_name}': No hay episodios válidos para agrupar.")
             else:
                 # Conteo simple de la variable categórica
@@ -574,7 +574,7 @@ class MatplotlibPlotGenerator(PlotGenerator):
                         width=style_config.get('bar_width', 0.8),
                         color=colors)
             # 3.7: Forzar que se muestre la leyenda para barras apiladas
-            plot_config['config']['show_legend'] = True
+            plot_config_data['config']['show_legend'] = True
             # Etiquetar grupos X si se agruparon episodios
             if group_size:
                 try:
@@ -591,13 +591,13 @@ class MatplotlibPlotGenerator(PlotGenerator):
             # Las etiquetas X ya son las categorías (índice de counts)
             ax.set_xticklabels(counts.index)
 
-    def _generate_heatmap_plot(self, ax: plt.Axes, fig: plt.Figure, plot_config: Dict, results_folder: str):
+    def _generate_heatmap_plot(self, ax: plt.Axes, fig: plt.Figure, plot_config_data: Dict, output_root_path_plot: str):
         """Genera un gráfico de heatmap. Usa extent y aplica límites estrictos."""
-        style_config = plot_config.get('config', {})
-        plot_name_cfg = plot_config.get('name'); plot_index = plot_config.get('_internal_plot_index', '?')
+        style_config = plot_config_data.get('config', {})
+        plot_name_cfg = plot_config_data.get('name'); plot_index = plot_config_data.get('_internal_plot_index', '?')
         log_name_ref = f"name='{plot_name_cfg}'" if plot_name_cfg else f"index={plot_index}"
 
-        grid_df = self._load_heatmap_data(results_folder, plot_config)
+        grid_df = self._load_heatmap_data(output_root_path_plot, plot_config_data)
         if grid_df is None or grid_df.empty:
             logger.warning(f"Datos vacíos para heatmap ({log_name_ref}). Plot vacío.")
             ax.text(0.5, 0.5, 'Datos Heatmap No Disponibles', **{'ha':'center', 'va':'center', 'color':'red', 'fontsize':12})

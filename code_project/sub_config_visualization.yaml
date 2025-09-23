@@ -61,13 +61,13 @@ plots:
       marker_style: 'o' # Style: '.', ',', 'o', 'v', '^', etc. or '' for none
       marker_size: 3
       marker_color: "#ff7f0e" # Orange
-      filter_termination_reason: null # Optional: list like ['stabilized', 'time_limit'] or null to include all
+      filter_termination_reason: null # Optional: list like ['goal_reached', 'time_limit'] or null to include all
   # --- Example Line Plot (Episode Time) ---
   - type: line
-    enabled: true
+    enabled: false
     source: summary
     x_variable: episode
-    y_variable: episode_time
+    y_variable: episode_time_duration_sec
     output_filename: fig3_episode_duration_per_episode.png
     config:
       title: Episode Duration per Episode
@@ -149,8 +149,8 @@ plots:
       ylabel_fontsize: 16
       xmin: 0
       xmax: 5
-      ymin: -0.1
-      ymax: 0.1
+      ymin: -0.2
+      ymax: 0.2
       tick_fontsize: 14
       xtick_rotation: 30
       num_xticks: 5
@@ -160,22 +160,22 @@ plots:
       cmin: null
       cmax: null #10000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 1000 # Number of bins for histogram2d
+      bins: 500 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
       filter_termination_reason: null
-  # --- Example Heatmap (Time vs Angle) stabilized ---
+  # --- Example Heatmap (Time vs Angle) goal_reached ---
   - type: heatmap
     enabled: true
-    name: "heatmap_time_vs_pendulum_angle(stabilized)"
+    name: "heatmap_time_vs_pendulum_angle(goal_reached)"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: pendulum_angle
     value_variable: time # Variable con la que se calcula el aggregation
-    output_filename: fig6_heatmap_time_vs_pendulum_angle(stabilized).png
+    output_filename: fig6_heatmap_time_vs_pendulum_angle(goal_reached).png
     config:
       aggregation: count # mean, max, min, etc...
-      title: Heatmap - Time vs Pendulum Angle (stabilized)
+      title: Heatmap - Time vs Pendulum Angle (goal_reached)
       title_fontsize: 18
       figsize_w: 14
       figsize_h: 10
@@ -196,10 +196,10 @@ plots:
       cmin: null
       cmax: null #1000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 1000 # Number of bins for histogram2d
+      bins: 500 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
-      filter_termination_reason: ['stabilized']
+      filter_termination_reason: ['goal_reached']
   # --- Example Heatmap (Time vs  Angular Velocity) ---
   - type: heatmap
     enabled: true
@@ -232,13 +232,13 @@ plots:
       cmin: null
       cmax: null #5000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 1000 # Number of bins for histogram2d
+      bins: 500 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
       filter_termination_reason: null # Optional: filter episodes before aggregating data
   # --- Example Heatmap (Angle vs Angular Velocity) ---
   - type: heatmap
-    enabled: true
+    enabled: false
     name: "heatmap_pendulum_angle_vs_pendulum_velocity"
     source: detailed
     x_variable: pendulum_angle
@@ -268,13 +268,49 @@ plots:
       cmin: null
       cmax: null #1000
       cmap: hot
-      bins: 1000
+      bins: 500
       log_scale: false
       grid_on: false
       filter_termination_reason: null
-  # --- Example Heatmap (Time vs Cart Position) ---
+  # --- Example Heatmap (Cart Position vs Cart Velocity) ---
   - type: heatmap
     enabled: true
+    name: "heatmap_pendulum_angle_vs_pendulum_velocity"
+    source: detailed
+    x_variable: cart_position
+    y_variable: cart_velocity
+    value_variable: cart_position # Variable con la que se calcula el aggregation
+    output_filename: fig8_heatmap_cart_position_vs_cart_velocity.png
+    config:
+      aggregation: count # mean, max, min, etc...
+      title: Heatmap - Cart Position vs Cart Velocity
+      title_fontsize: 18
+      figsize_w: 14
+      figsize_h: 10
+      xlabel: Cart Position (m)
+      xlabel_fontsize: 16
+      ylabel: Cart Velocity (m/s)
+      ylabel_fontsize: 16
+      xmin: -2.0
+      xmax: 2.0
+      ymin: -1.5
+      ymax: 1.5
+      tick_fontsize: 14
+      xtick_rotation: 30
+      num_xticks: 5
+      num_yticks: 5
+      clabel: Frequency
+      clabel_fontsize: 14
+      cmin: null
+      cmax: null #1000
+      cmap: hot
+      bins: 500
+      log_scale: false
+      grid_on: false
+      filter_termination_reason: null    
+  # --- Example Heatmap (Time vs Cart Position) ---
+  - type: heatmap
+    enabled: false
     name: "heatmap_time_vs_cart_position"
     source: detailed # Use data from the list of all episode details
     x_variable: time
@@ -304,22 +340,22 @@ plots:
       cmin: null
       cmax: null #5000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 1000 # Number of bins for histogram2d
+      bins: 500 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
       filter_termination_reason: null
-  # --- Example Heatmap (Time vs Cart Position) stabilized ---
+  # --- Example Heatmap (Time vs Cart Position) goal_reached ---
   - type: heatmap
-    enabled: true
-    name: "heatmap_time_vs_cart_position(stabilized)"
+    enabled: false
+    name: "heatmap_time_vs_cart_position(goal_reached)"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: cart_position
     value_variable: time # Variable con la que se calcula el aggregation
-    output_filename: fig10_heatmap_time_vs_cart_position(stabilized).png
+    output_filename: fig10_heatmap_time_vs_cart_position(goal_reached).png
     config:
       aggregation: count # mean, max, min, etc...
-      title: Heatmap - Time vs Cart Position (stabilized)
+      title: Heatmap - Time vs Cart Position (goal_reached)
       title_fontsize: 18
       figsize_w: 14
       figsize_h: 10
@@ -340,13 +376,49 @@ plots:
       cmin: null
       cmax: null
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 1000 # Number of bins for histogram2d
+      bins: 500 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
-      filter_termination_reason: ['stabilized']
+      filter_termination_reason: ['goal_reached']
+  # --- Example Heatmap (Time vs Cart Velocity) goal_reached ---
+  - type: heatmap
+    enabled: false
+    name: "heatmap_time_vs_cart_position(goal_reached)"
+    source: detailed # Use data from the list of all episode details
+    x_variable: time
+    y_variable: cart_velocity
+    value_variable: time # Variable con la que se calcula el aggregation
+    output_filename: fig10_heatmap_time_vs_cart_velocity(goal_reached).png
+    config:
+      aggregation: count # mean, max, min, etc...
+      title: Heatmap - Time vs Cart Velocity (goal_reached)
+      title_fontsize: 18
+      figsize_w: 14
+      figsize_h: 10
+      xlabel: Time [s]
+      xlabel_fontsize: 16
+      ylabel: Cart Velocity (m)
+      ylabel_fontsize: 16
+      xmin: 0
+      xmax: 5
+      ymin: null
+      ymax: null
+      tick_fontsize: 14
+      xtick_rotation: 30
+      num_xticks: 5
+      num_yticks: 5
+      clabel: Frequency
+      clabel_fontsize: 14
+      cmin: null
+      cmax: null
+      cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
+      bins: 500 # Number of bins for histogram2d
+      log_scale: false # Use logarithmic color scale?
+      grid_on: false
+      filter_termination_reason: ['goal_reached']
   # --- Example Heatmap (Time vs Cart Velocity) ---
   - type: heatmap
-    enabled: true
+    enabled: false
     name: "heatmap_time_vs_cart_velocity"
     source: detailed # Use data from the list of all episode details
     x_variable: time
@@ -365,8 +437,8 @@ plots:
       ylabel_fontsize: 16
       xmin: 0
       xmax: 5
-      ymin: -1.0
-      ymax: 1.0
+      ymin: -1.5
+      ymax: 1.5
       tick_fontsize: 14
       xtick_rotation: 30
       num_xticks: 5
@@ -376,7 +448,7 @@ plots:
       cmin: null
       cmax: null #5000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 1000 # Number of bins for histogram2d
+      bins: 500 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
       filter_termination_reason: null
@@ -412,22 +484,22 @@ plots:
       cmin: null
       cmax: null #10000
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 1000 # Number of bins for histogram2d
+      bins: 500 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
       filter_termination_reason: null
-  # --- Example Heatmap (Time vs Force) stabilized ---
+  # --- Example Heatmap (Time vs Force) goal_reached ---
   - type: heatmap
-    enabled: true
-    name: "heatmap_time_vs_force(stabilized)"
+    enabled: false
+    name: "heatmap_time_vs_force(goal_reached)"
     source: detailed # Use data from the list of all episode details
     x_variable: time
     y_variable: force
     value_variable: time # Variable con la que se calcula el aggregation
-    output_filename: fig13_heatmap_time_vs_force(stabilized).png
+    output_filename: fig13_heatmap_time_vs_force(goal_reached).png
     config:
       aggregation: count # mean, max, min, etc...
-      title: Heatmap - Time vs Force (stabilized)
+      title: Heatmap - Time vs Force (goal_reached)
       title_fontsize: 18
       figsize_w: 14
       figsize_h: 10
@@ -437,8 +509,8 @@ plots:
       ylabel_fontsize: 16
       xmin: 0
       xmax: 5
-      ymin: -10.0
-      ymax: 10.0
+      ymin: -30.0
+      ymax: 30.0
       tick_fontsize: 14
       xtick_rotation: 30
       num_xticks: 5
@@ -448,7 +520,7 @@ plots:
       cmin: null
       cmax: null
       cmap: hot # 'viridis', 'plasma', 'inferno', 'magma', 'hot', etc.
-      bins: 1000 # Number of bins for histogram2d
+      bins: 500 # Number of bins for histogram2d
       log_scale: false # Use logarithmic color scale?
       grid_on: false
-      filter_termination_reason: ['stabilized']
+      filter_termination_reason: ['goal_reached']

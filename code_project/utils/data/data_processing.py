@@ -2,245 +2,137 @@
 import numpy as np
 import pandas as pd
 import logging
-from typing import Dict, List, Any, Callable, Optional # Añadir Optional y Callable
+from typing import Dict, List, Any, Callable, Optional
 
-# 2.1: Usar logger específico del módulo
-logger = logging.getLogger(__name__)
+logger_dp_mod = logging.getLogger(__name__) # Renombrado para evitar colisión con logger global
 
-def _safe_agg(series: Optional[pd.Series], agg_func: Callable) -> Any:
-    """
-    Aplica una función de agregación a una Serie de Pandas de forma segura.
-    Maneja Series None, vacías, con solo NaN, y errores durante la agregación.
-
-    Args:
-        series (Optional[pd.Series]): La serie de datos a agregar.
-        agg_func (Callable): La función de agregación (e.g., np.mean, np.std, np.min, np.max).
-
-    Returns:
-        Any: El resultado de la agregación (usualmente float o int), o np.nan si la
-             serie es inválida o la agregación falla.
-    """
-    # 2.2: Manejar None input
-    if series is None or series.empty:
+def _safe_aggregate_series(data_series: Optional[pd.Series], 
+                           aggregation_func_call: Callable, # Renombrado para claridad
+                           indicator_id: str = "" # Renombrado
+                          ) -> Any:
+    """Aplica una función de agregación a una pd.Series de forma segura."""
+    if data_series is None or data_series.empty:
         return np.nan
-    try:
-        # Intentar convertir a numérico, coercing errores a NaN
-        numeric_series = pd.to_numeric(series, errors='coerce')
-        # Eliminar NaN y Infinitos antes de agregar
-        valid_series = numeric_series.dropna()[np.isfinite(numeric_series.dropna())]
-        if valid_series.empty:
-            return np.nan # Devolver NaN si no quedan valores válidos
-
-        result = agg_func(valid_series)
-
-        # Devolver NaN si el resultado de la agregación es NaN o Infinito
-        if pd.isna(result) or not np.isfinite(result):
-            return np.nan
-
-        # Intentar convertir tipos NumPy a tipos Python estándar si es posible
-        try:
-            if isinstance(result, (np.int_, np.integer)): return int(result)
-            elif isinstance(result, (np.float_, np.floating)): return float(result)
-            else: return result # Devolver como está si no es un tipo numpy conocido
-        except Exception:
-            return result # Devolver resultado original si la conversión falla
-    except Exception as e:
-        # Loguear advertencia si la agregación falla
-        logger.warning(f"[DataProcessing_safe_agg] Error aplicando agregación '{agg_func.__name__}' a serie (primeros elems: {series.head().tolist()}...): {e}")
+    
+    # Convertir a numérico, errores a NaN, luego quitar NaNs y no-finitos
+    numeric_series_clean = pd.to_numeric(data_series, errors='coerce').dropna()
+    numeric_series_clean = numeric_series_clean[np.isfinite(numeric_series_clean)]
+        
+    if numeric_series_clean.empty:
         return np.nan
 
-def get_last_or_value(data_dict: Dict[str, List[Any]], key: str, default: Any = np.nan) -> Any:
-    """
-    Helper para obtener el último valor válido de una lista en el dict,
-    o el valor si no es lista, o default si no se encuentra/es inválido.
-    Maneja NaN/inf para valores numéricos, y acepta strings/otros tipos.
-    """
-    value = data_dict.get(key)
-    last_valid_value = default
-
-    if isinstance(value, list):
-        # Iterar hacia atrás para encontrar el último valor no None
-        found = False
-        for v in reversed(value):
-            if v is not None:
-                # --- Corrección: Chequear isfinite SOLO si es numérico ---
-                is_num = isinstance(v, (int, float, np.number))
-                if is_num:
-                    # Si es numérico, chequear finitud
-                    if pd.notna(v) and np.isfinite(v):
-                        last_valid_value = v
-                        found = True
-                        break # Encontrado el último numérico válido
-                else:
-                    # Si no es numérico (e.g., string), considerarlo válido si no es None
-                    last_valid_value = v
-                    found = True
-                    break # Encontrado el último no-None
-        # Si el bucle termina sin encontrar nada (lista vacía o solo None), se mantiene el default
-    elif value is not None:
-        # Si no es lista pero existe, chequear validez
-        is_num = isinstance(value, (int, float, np.number))
-        if is_num:
-            # Chequear finitud si es numérico
-            if pd.notna(value) and np.isfinite(value):
-                last_valid_value = value
-        else:
-            # Aceptar si no es numérico (e.g., string 'unknown')
-            last_valid_value = value
-    # else: Si la clave no existe o es None/NaN/Inf, devolver default
-
-    # Intentar convertir tipos NumPy a Python estándar si aplica (después de encontrar el valor)
-    try:
-        if isinstance(last_valid_value, (np.int_, np.integer)): return int(last_valid_value)
-        elif isinstance(last_valid_value, (np.float_, np.floating)): return float(last_valid_value)
-        elif isinstance(last_valid_value, np.bool_): return bool(last_valid_value) # Añadir bool
-    except Exception: pass # Ignorar errores de conversión
-
-    return last_valid_value
-
-
-def summarize_episode(episode_data: Dict[str, List[Any]]) -> Dict[str, Any]:
-    """
-    Genera un diccionario resumen completo para los datos detallados de un solo episodio.
-    Calcula estadísticas agregadas y extrae valores finales/representativos.
-
-    Args:
-        episode_data (Dict[str, List[Any]]): Diccionario de métricas del episodio.
-
-    Returns:
-        Dict[str, Any]: Diccionario con estadísticas resumen.
-    """
-    # 2.3: Validar input básico
-    if not isinstance(episode_data, dict):
-        logger.error("[DataProcessing_summarize_episode] summarize_episode recibió datos no diccionario. Devolviendo resumen vacío.")
-        return {'episode': -1, 'error': 'Invalid input data format'}
-    if not episode_data:
-         logger.warning("[DataProcessing_summarize_episode] summarize_episode recibió diccionario vacío. Devolviendo resumen vacío.")
-         return {'episode': -1, 'warning': 'Empty input data'}
-
-    summary: Dict[str, Any] = {}
-    # Obtener episode ID (SimulationManager lo añade antes de llamar)
-    # Usar el helper get_last_or_value que maneja listas/valores únicos
-    summary['episode'] = get_last_or_value(episode_data, 'episode', -1) # Default -1 si falta
-
-    # --- Campos de Resumen Directo (último valor válido o pre-calculado) ---
-    # Usar el helper get_last_or_value
-    summary['termination_reason'] = get_last_or_value(episode_data, 'termination_reason', 'unknown')
-    summary['episode_time'] = get_last_or_value(episode_data, 'episode_time', np.nan) # Añadido por SimMan
-    summary['total_reward'] = get_last_or_value(episode_data, 'total_reward', np.nan) # Añadido por SimMan
-    summary['avg_stability_score'] = get_last_or_value(episode_data, 'avg_stability_score', np.nan) # Añadido por SimMan
-    summary['avg_w_stab_kp_cf'] = get_last_or_value(episode_data, 'virtual_w_stab_kp_cf', np.nan)
-    summary['avg_w_stab_ki_cf'] = get_last_or_value(episode_data, 'virtual_w_stab_ki_cf', np.nan)
-    summary['avg_w_stab_kd_cf'] = get_last_or_value(episode_data, 'virtual_w_stab_kd_cf', np.nan)
-    summary['final_epsilon'] = get_last_or_value(episode_data, 'epsilon', np.nan)
-    summary['final_learning_rate'] = get_last_or_value(episode_data, 'learning_rate', np.nan)
-    summary['episode_duration_s'] = get_last_or_value(episode_data, 'episode_duration_s', np.nan) # Añadido por SimMan
-    summary['total_agent_decisions'] = get_last_or_value(episode_data, 'total_agent_decisions', 0) # Añadido por SimMan
-    summary['final_kp'] = get_last_or_value(episode_data, 'final_kp', np.nan) # Añadido por SimMan
-    summary['final_ki'] = get_last_or_value(episode_data, 'final_ki', np.nan) # Añadido por SimMan
-    summary['final_kd'] = get_last_or_value(episode_data, 'final_kd', np.nan) # Añadido por SimMan
-    summary['performance'] = get_last_or_value(episode_data, 'performance', np.nan) # Añadido por SimMan
-
-
-    # --- Métricas a EXCLUIR de la agregación estadística (mean, std, min, max) ---
-    # 2.4: Definir métricas que *no* deben agregarse estadísticamente
-    metrics_to_exclude_from_agg = {
-        # Identificadores y descriptores
-        'episode', 'time', 'id_agent_decision', 'termination_reason',
-        # Valores finales ya extraídos
-        'epsilon', 'learning_rate', 'final_kp', 'final_ki', 'final_kd',
-        'episode_duration_s', 'total_agent_decisions', 'episode_time',
-        # Valores agregados ya calculados
-        'total_reward', 'avg_stability_score', 'performance', 'cumulative_reward',
-        # Pasos de ganancia (usualmente constantes o logueados al final)
-        'gain_step', 'gain_step_kp', 'gain_step_ki', 'gain_step_kd',
-        # Recompensas y Estabilidades virtuales (último valor ya extraído)
-        'virtual_reward_kp', 'virtual_reward_ki', 'virtual_reward_kd',
-        'avg_w_stab_kp_cf', 'avg_w_stab_ki_cf', 'avg_w_stab_kd_cf',
-        # Contadores de visita (su valor final puede ser más útil que la media)
-        'q_visit_count_state_kp', 'q_visit_count_state_ki', 'q_visit_count_state_kd',
-        # Acciones discretas (la media no tiene sentido)
-        'action_kp', 'action_ki', 'action_kd',
-        # Podrían añadirse otras si su agregación no es informativa
-    }
-    # No es necesario extender con claves no presentes, la lógica de abajo lo maneja.
-
-    # --- Estadísticas Agregadas (Media, Std, Min, Max) usando _safe_agg ---
-    for metric, values in episode_data.items():
-        # Saltar si es una métrica excluida o si el valor no es una lista
-        if metric in metrics_to_exclude_from_agg or not isinstance(values, list):
-            continue
-
-        # Convertir lista a Serie de Pandas para usar _safe_agg
+    # Manejo especial para percentiles si la función de agregación los espera como string/float
+    # (ej. pd.Series.quantile(q=0.25))
+    if indicator_id.startswith('p') and indicator_id[1:].isdigit(): # p25, p50, p75
         try:
-            s = pd.Series(values)
-        except Exception as e:
-            logger.warning(f"[DataProcessing_summarize_episode] Error creando Serie Pandas para métrica '{metric}' en ep {summary['episode']}. Saltando agregación. Error: {e}")
-            summary[f'{metric}_mean'] = np.nan; summary[f'{metric}_std'] = np.nan
-            summary[f'{metric}_min'] = np.nan; summary[f'{metric}_max'] = np.nan
-            continue
-
-        # Calcular agregados usando el helper seguro
-        summary[f'{metric}_mean'] = _safe_agg(s, np.mean)
-        summary[f'{metric}_std'] = _safe_agg(s, np.std)
-        summary[f'{metric}_min'] = _safe_agg(s, np.min)
-        summary[f'{metric}_max'] = _safe_agg(s, np.max)
-
-    # --- Añadir Valores Finales Representativos (opcional, puede ser redundante) ---
-    # Si se desea explícitamente el último valor de algunas métricas no agregadas
-    # (aunque get_last_or_value ya lo hizo para las principales)
-    metrics_final_value_explicit = [
-         'gain_step', 'gain_step_kp', 'gain_step_ki', 'gain_step_kd', # Último valor del paso
-         'q_visit_count_state_kp', 'q_visit_count_state_ki', 'q_visit_count_state_kd', # Último conteo
-         # ... añadir otras si es necesario ...
-    ]
-    adaptive_vars = ['angle', 'angular_velocity', 'cart_position', 'cart_velocity']
-    for var in adaptive_vars: metrics_final_value_explicit.extend([f'adaptive_mu_{var}', f'adaptive_sigma_{var}'])
-
-    for metric in metrics_final_value_explicit:
-        # Solo añadir si no fue agregado como mean/std/min/max
-        if f'{metric}_mean' not in summary:
-            # Usar el helper para obtener el último valor válido
-            summary[metric] = get_last_or_value(episode_data, metric, np.nan)
-
-    
-    # --- Early Termination Metrics (últimos valores) ---
-    agent_vars_to_summarize = []
-    
-    agent_vars_to_summarize = episode_data.get('_agent_defining_vars', []) # Obtenerla directamente
-
-    if not agent_vars_to_summarize:
-        logger.debug("[DataProcessing_summarize_episode] No se pudieron inferir 'agent_defining_vars' de las claves de episode_data para resumir métricas ET.")
+            quantile_val_float = float(indicator_id[1:]) / 100.0
+            # Usar pd.Series.quantile si la función lo permite o pasarla directamente
+            if hasattr(aggregation_func_call, '__name__') and aggregation_func_call.__name__ == '<lambda>': # Si es una lambda para quantile
+                 result_agg = aggregation_func_call(numeric_series_clean) # La lambda ya tiene el cuantil
+            elif callable(getattr(numeric_series_clean, 'quantile', None)): # Si la serie tiene quantile
+                 result_agg = numeric_series_clean.quantile(quantile_val_float)
+            else: # Fallback a np.percentile si agg_func es np.percentile y se pasó el cuantil
+                 result_agg = aggregation_func_call(numeric_series_clean, float(indicator_id[1:]))
+        except Exception: # Fallback si el manejo de percentil falla
+            result_agg = aggregation_func_call(numeric_series_clean)
     else:
-        logger.debug(f"[DataProcessing_summarize_episode] Resumiendo métricas ET para agent_vars: {agent_vars_to_summarize}")
+        result_agg = aggregation_func_call(numeric_series_clean)
+
+    if pd.isna(result_agg) or not np.isfinite(result_agg): return np.nan
+    
+    # Intentar convertir tipos de NumPy a tipos nativos de Python para mejor serialización JSON
+    if isinstance(result_agg, (np.integer, np.int_)): return int(result_agg)
+    if isinstance(result_agg, (np.floating, np.float64)): return float(result_agg)
+    return result_agg
 
 
-    for gain_suffix in agent_vars_to_summarize:
-        # Validar que las métricas base para esta ganancia existan para evitar KeyErrors
-        # si alguna métrica ET no se logueó consistentemente para todas las ganancias.
-        patience_key = f'patience_M_{gain_suffix}'
-        if patience_key not in episode_data: # Si no hay datos de paciencia para esta ganancia, saltar
-            logger.warning(f"[DataProcessing_summarize_episode] Métrica '{patience_key}' no encontrada en episode_data. Saltando resumen ET para '{gain_suffix}'.")
-            continue
+def get_last_valid_value_from_list(
+    metrics_data: Dict[str, List[Any]],
+    metric_key: str,
+    default_val: Any = np.nan # Renombrado
+) -> Any:
+    """Obtiene el último valor válido de una lista de métricas."""
+    metric_list_values = metrics_data.get(metric_key)
+    last_valid_val = default_val
 
-        summary[f'final_patience_M_{gain_suffix}'] = get_last_or_value(episode_data, patience_key, np.nan)
-        summary[f'final_c_hat_{gain_suffix}'] = get_last_or_value(episode_data, f'no_improvement_counter_c_hat_{gain_suffix}', np.nan)
-        summary[f'final_beta_{gain_suffix}'] = get_last_or_value(episode_data, f'penalty_beta_{gain_suffix}', np.nan)
-        
-        improvement_metric_values = episode_data.get(f'improvement_metric_value_{gain_suffix}', [])
-        if isinstance(improvement_metric_values, list) and improvement_metric_values: # Asegurar que sea lista y no vacía
-            summary[f'avg_improvement_metric_value_{gain_suffix}'] = _safe_agg(pd.Series(improvement_metric_values), np.mean)
+    if isinstance(metric_list_values, list):
+        for val_item in reversed(metric_list_values): # Iterar desde el final
+            if val_item is not None:
+                if isinstance(val_item, (int, float, np.number)): # Si es numérico
+                    if pd.notna(val_item) and np.isfinite(val_item):
+                        last_valid_val = val_item; break
+                else: # Si no es numérico (ej. string, bool), tomar el último no-None
+                    last_valid_val = val_item; break
+    elif metric_list_values is not None: # Si no es lista pero no es None (valor único)
+        if isinstance(metric_list_values, (int, float, np.number)):
+            if pd.notna(metric_list_values) and np.isfinite(metric_list_values):
+                last_valid_val = metric_list_values
         else:
-            summary[f'avg_improvement_metric_value_{gain_suffix}'] = np.nan
-        
-        initial_patience_list = episode_data.get(patience_key, []) # Reusar patience_key
-        if initial_patience_list and pd.notna(initial_patience_list[0]):
-             summary[f'initial_patience_M_{gain_suffix}'] = initial_patience_list[0]
-        else:
-             summary[f'initial_patience_M_{gain_suffix}'] = np.nan
-             
-        requested_et_list = episode_data.get(f'requested_early_termination_{gain_suffix}', [])
-        summary[f'any_requested_et_{gain_suffix}'] = any(val for val in requested_et_list if val is True)
+            last_valid_val = metric_list_values
+    
+    # Conversión de tipos NumPy a Python nativos
+    if isinstance(last_valid_val, (np.integer, np.int_)): return int(last_valid_val)
+    if isinstance(last_valid_val, (np.floating, np.float64)): return float(last_valid_val)
+    if isinstance(last_valid_val, np.bool_): return bool(last_valid_val)
+    return last_valid_val
 
-    # 2.5: Devolver el diccionario de resumen
-    return summary
+
+def summarize_episode(
+    detailed_metrics: Dict[str, List[Any]], # Métricas detalladas del episodio
+    summary_directives_config: Dict[str, Any] # Directivas de 'processed_data_directives'
+) -> Dict[str, Any]:
+    """Genera un diccionario resumen para un episodio, usando directivas."""
+    # logger_dp_mod.debug(f"Summarizing episode. Directives: {summary_directives_config.keys()}")
+    ep_summary: Dict[str, Any] = {}
+    
+    # Asegurar que 'episode' siempre esté, si está en las métricas detalladas
+    ep_summary['episode'] = get_last_valid_value_from_list(detailed_metrics, 'episode', -1)
+
+    # 1. Columnas Directas (último valor válido)
+    direct_cols = summary_directives_config.get('summary_direct_columns', [])
+    for col_key_direct in direct_cols:
+        if col_key_direct == 'episode': continue # Ya añadido
+        if col_key_direct in detailed_metrics:
+            ep_summary[col_key_direct] = get_last_valid_value_from_list(detailed_metrics, col_key_direct)
+        # else: logger_dp_mod.debug(f"Direct summary key '{col_key_direct}' not in detailed_metrics.")
+
+    # 2. Estadísticas Agregadas
+    if summary_directives_config.get('summary_stats_enabled', False):
+        stat_metric_keys = summary_directives_config.get('summary_stat_columns', [])
+        stat_indicators_list = summary_directives_config.get('summary_stat_indicators', [])
+        
+        # Mapeo de indicadores a funciones (simplificado)
+        agg_funcs: Dict[str, Callable] = {
+            '_mean': np.nanmean, '_sigma': np.nanstd, '_min': np.nanmin, '_max': np.nanmax,
+            'p50': np.nanmedian, # p50 es mediana
+            # Lambdas para percentiles que usan np.nanpercentile
+            'p25': lambda s: np.nanpercentile(s, 25) if len(s[~np.isnan(s)]) > 0 else np.nan,
+            'p75': lambda s: np.nanpercentile(s, 75) if len(s[~np.isnan(s)]) > 0 else np.nan,
+        }
+        
+        for metric_key_for_stat in stat_metric_keys:
+            if metric_key_for_stat in detailed_metrics:
+                data_list_for_stat = detailed_metrics[metric_key_for_stat]
+                if not isinstance(data_list_for_stat, list): continue # Solo procesar listas
+
+                # Crear pd.Series para facilitar agregaciones y manejo de NaNs
+                # Convertir a numérico aquí, errores a NaN
+                pd_series_data = pd.to_numeric(pd.Series(data_list_for_stat), errors='coerce')
+
+                for indicator_str in stat_indicators_list:
+                    agg_function_to_call = agg_funcs.get(indicator_str)
+                    if agg_function_to_call:
+                        summary_col_name = f"{metric_key_for_stat}{indicator_str}"
+                        # _safe_aggregate_series ya maneja NaNs y tipos numéricos
+                        ep_summary[summary_col_name] = _safe_aggregate_series(pd_series_data, agg_function_to_call, indicator_str)
+                    # else: logger_dp_mod.warning(f"Unknown indicator '{indicator_str}' for metric '{metric_key_for_stat}'.")
+            # else: logger_dp_mod.debug(f"Stat column key '{metric_key_for_stat}' not in detailed_metrics.")
+
+    # 3. Procesamiento Adicional (ej. métricas de ET que son directas pero se basan en gain_id)
+    #    Se asume que si 'patience_M_kp' está en 'summary_direct_columns', ya se extrajo.
+    #    Si se necesitan agregaciones de métricas de ET (ej. promedio de 'improvement_metric_value_kp'),
+    #    deben estar en 'summary_stat_columns' y 'summary_stat_indicators'.
+    #    El '_agent_defining_vars' puede ser útil si se quiere iterar y construir nombres de métricas dinámicamente.
+    #    Por ahora, la lógica de arriba es genérica y se basa en los nombres exactos en las directivas.
+
+    return ep_summary

@@ -1,68 +1,54 @@
 # factories/environment_factory.py
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Callable
 from interfaces.environment import Environment
-from interfaces.reward_function import RewardFunction
 from interfaces.dynamic_system import DynamicSystem
 from interfaces.controller import Controller
 from interfaces.rl_agent import RLAgent
-from components.environments.pendulum_environment import PendulumEnvironment
+from interfaces.reward_function import RewardFunction
+from interfaces.stability_calculator import BaseStabilityCalculator
 
-logger = logging.getLogger(__name__) # Logger específico del módulo
+logger = logging.getLogger(__name__)
 
 class EnvironmentFactory:
     def __init__(self):
-        logger.info("[EnvironmentFactory] Instance created.")
+        self._creators: Dict[str, Callable[..., Environment]] = {}
+        logger.info("[EnvironmentFactory] Instance created. Ready to register environment creators.")
+
+    def register_environment_type(self, env_type_name: str, creator_func: Callable[..., Environment]):
+        if env_type_name in self._creators:
+            logger.warning(f"[EnvironmentFactory:register] Overwriting creator for environment type: {env_type_name}")
+        self._creators[env_type_name] = creator_func
+        logger.info(f"[EnvironmentFactory:register] Environment type '{env_type_name}' registered with creator: {getattr(creator_func, '__name__', str(creator_func))}")
 
     def create_environment(self,
-                           config: Dict[str, Any], # Config completa
-                           reward_function_instance: RewardFunction,
-                           system_instance: DynamicSystem,
-                           controller_instance: Controller,
-                           agent_instance: RLAgent
+                           env_type: str,
+                           # Estos son los argumentos que el constructor de PendulumEnvironment espera.
+                           # Son resueltos por el DI y pasados a esta factoría.
+                           system: Any, # DynamicSystem
+                           controller: Any, # Controller
+                           agent: Any, # RLAgent
+                           reward_function: Any, # RewardFunction
+                           stability_calculator: Any, # BaseStabilityCalculator (NUEVO)
+                           config: Dict[str, Any] # Config completa
                            ) -> Environment:
-        logger.debug("[EnvironmentFactory:create_environment] Attempting to create environment...")
+        logger.info(f"[EnvironmentFactory:create_environment] Attempting environment type: '{env_type}'")
+        
+        creator = self._creators.get(env_type)
+        if not creator:
+            error_msg = f"Unknown environment type specified: '{env_type}'. Available types: {list(self._creators.keys())}"
+            logger.critical(f"[EnvironmentFactory:create_environment] {error_msg}")
+            raise ValueError(error_msg)
 
-        env_config_section = config.get('environment', {})
-        if not isinstance(env_config_section, dict):
-            raise ValueError("Config section 'environment' missing or not a dictionary.")
-
-        env_type = env_config_section.get('type')
-        if not env_type or not isinstance(env_type, str):
-            raise ValueError("Missing or invalid 'type' in 'environment' config section.")
-        logger.info(f"[EnvironmentFactory:create_environment] Environment type requested: {env_type}")
-
-        environment: Environment
-        try:
-            if env_type == 'pendulum_environment':
-                # Extraer dt desde environment.simulation.dt
-                dt_val = env_config_section.get('simulation', {}).get('dt')
-                # Extraer reset_gains desde environment.controller.pid_adaptation.reset_gains_each_episode
-                reset_gains_val = env_config_section.get('controller', {}).get('pid_adaptation', {}).get('reset_gains_each_episode')
-
-                # PendulumEnvironment validará dt y reset_gains
-                logger.debug(f"[EnvironmentFactory:create_environment] Creating PendulumEnvironment. dt={dt_val}, reset_gains={reset_gains_val}")
-                environment = PendulumEnvironment(
-                    system=system_instance,
-                    controller=controller_instance,
-                    agent=agent_instance,
-                    reward_function=reward_function_instance,
-                    dt=dt_val, # type: ignore # El constructor de PendulumEnv validará
-                    reset_gains=reset_gains_val, # type: ignore # El constructor validará
-                    config=config # Pasar config completa
-                )
-            # --- Añadir otros tipos de entorno aquí ---
-            # elif env_type == 'other_env_type':
-            #     # Extraer otros params específicos del entorno desde config
-            #     environment = OtherEnvClass(...)
-            else:
-                raise ValueError(f"Unknown environment type specified: {env_type}")
-
-            logger.info(f"[EnvironmentFactory:create_environment] Environment '{type(environment).__name__}' created.")
-            return environment
-        except (ValueError, TypeError, KeyError) as e_constr: # Errores del constructor del entorno o de acceso a config
-            logger.error(f"[EnvironmentFactory:create_environment] Error constructing environment '{env_type}': {e_constr}", exc_info=True)
-            raise
-        except Exception as e_unexp:
-            logger.error(f"[EnvironmentFactory:create_environment] Unexpected error creating environment '{env_type}': {e_unexp}", exc_info=True)
-            raise RuntimeError(f"Unexpected error creating environment '{env_type}'") from e_unexp
+        # El constructor del entorno específico (e.g., PendulumEnvironment)
+        # es responsable de validar las instancias inyectadas y extraer
+        # sus propios parámetros de la 'config'.
+        # Pasar todas las dependencias y la config completa.
+        return creator(
+            system=system,
+            controller=controller,
+            agent=agent,
+            reward_function=reward_function,
+            stability_calculator=stability_calculator, # <<< PASAR EL STABILITY CALCULATOR AL CONSTRUCTOR
+            config=config
+        )
