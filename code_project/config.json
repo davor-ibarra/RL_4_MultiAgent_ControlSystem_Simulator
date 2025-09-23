@@ -1,0 +1,70 @@
+{
+    "simulation": {
+      "max_episodes": 100,
+      "dt": 0.001,
+      "total_time": 5.0,
+      "use_cart_limit": true,
+      "cart_limit": 5.0,
+      "use_angle_limit": true,
+      "angle_limit": 1.0472,
+      "extract_qtables": true,
+      "extract_frequency": 500,
+      "results_folder": "V3_code\\results_history",
+      "use_controller": true,
+      "use_qlearning": true,
+      "decision_interval": 0.01
+    },
+    "physical": {
+      "x0": [0, 0, 0.1745329, 0],
+      "m1": 5.0,
+      "m2": 1.0,
+      "l": 2.0,
+      "cr": 0.0,
+      "ca": 0.0,
+      "g": 9.81
+    },
+    "controller": {
+      "setpoint": 0.0,
+      "kp": 10,
+      "ki": 0,
+      "kd": 0,
+      "gain_step": 5.0,
+      "variable_step": false,
+      "reset_gains_each_episode": true
+    },
+    "rl": {
+      "num_actions": 3,
+      "discount_factor": 0.98,
+      "epsilon": 1.0,
+      "epsilon_decay": 0.99954,
+      "epsilon_min": 0.1,
+      "use_epsilon_decay": true,
+      "learning_rate": 1.0,
+      "learning_rate_decay": 0.999425,
+      "learning_rate_min": 0.01,
+      "use_learning_rate_decay": true,
+      "reward_weights": {
+        "stability": 1.0,
+        "force": 0.5,
+        "cart": 0.0,
+        "time": 0.0
+      },
+      "reward_scales": {
+        "angle": 0.1745329,
+        "angular_velocity": 0.5,
+        "cart_position": 2.5,
+        "cart_velocity": 1.25,
+        "force": 1.0,
+        "time": 1.0
+      }
+    },
+    "state": {
+      "position": { "enabled": false, "min": -5, "max": 5, "bins": 1 },
+      "velocity": { "enabled": false, "min": -5, "max": 5, "bins": 1 },
+      "angle": { "enabled": false, "min": -0.0349066, "max": 0.0349066, "bins": 6 },
+      "angular_velocity": { "enabled": false, "min": -0.1, "max": 0.1, "bins": 6 },
+      "kp": { "enabled": true, "min": 0.0, "max": 100.0, "bins": 21 },
+      "ki": { "enabled": true, "min": 0.0, "max": 100.0, "bins": 21 },
+      "kd": { "enabled": true, "min": 0.0, "max": 100.0, "bins": 21 }
+    }
+  }
