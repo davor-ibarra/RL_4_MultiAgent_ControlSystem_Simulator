@@ -41,7 +41,7 @@ environment:
       epsilon_min: 0.1           # Minimum exploration rate
       use_epsilon_decay: true    # Enable/disable epsilon decay
       # Learning Rate (Alpha) Settings
-      learning_rate: 1.0         # Initial learning rate for Q-updates
+      learning_rate: 0.1         # Initial learning rate for Q-updates
       learning_rate_decay: 0.999425 # Decay factor per episode | 0.999425 (8000) | 0.999693035777428 (15000)
       learning_rate_min: 0.01    # Minimum learning rate
       use_learning_rate_decay: true # Enable/disable learning rate decay
@@ -60,7 +60,7 @@ environment:
   # --- Reward Configuration (Nueva Estructura) ---
   reward_setup:
     # --- Agent Learning Strategy ---
-    learning_strategy: global # Choose: 'global', 'shadow_baseline', 'echo_baseline'
+    learning_strategy: shadow_baseline # Choose: 'global', 'shadow_baseline', 'echo_baseline'
     # --- Reward Calculation ---
     calculation:
       # Determines how base reward R(s,a,s') is calculated per step.
@@ -79,23 +79,23 @@ environment:
           angular_velocity: 0.5
           cart_position: 1.0
           cart_velocity: 1.0
-          force: 10.0
+          force: 1.0
           time: 1.0
 
     # --- Stability Score (w_stab) Calculation ---
     stability_calculator:
       enabled: true # Calculate w_stab? (Needed for Shadow baseline update)
       # Choose type: 'ira_instantaneous' or 'simple_exponential'
-      type: ira_instantaneous
+      type: simple_exponential
       # --- Parameters specific to the chosen type ---
       ira_params: # Used if type is 'ira_instantaneous'
         # lambda: Sensitivity factor ONLY used if calculation.method is 'stability_calculator'
-        lambda: 1.5
+        lambda: 1.0
         weights:
           angle: 1.0
           angular_velocity: 1.0
           cart_position: 0.0
-          cart_velocity: 0.5
+          cart_velocity: 0.0
         z_score_epsilon: 1.0e-6
         adaptive_stats:
           enabled: false
@@ -173,8 +173,8 @@ visualization:
 # Logging Configuration
 # ========================================
 logging:
-  log_to_file: true                 # Enable/disable logging to file
-  filename: simulation_run.log      # Base name for the log file (will be placed in results folder)
+  log_to_file: false                 # Enable/disable logging to file
+  filename: log_simulation_run.log      # Base name for the log file (will be placed in results folder)
   # List of levels to include in the file (e.g., DEBUG, INFO, WARNING, ERROR, CRITICAL)
   # The lowest level specified determines the overall minimum level processed.
   levels: [INFO, WARNING, ERROR, CRITICAL]

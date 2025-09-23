@@ -28,10 +28,8 @@ class ControllerFactory:
         Args:
             controller_type (str): The type of controller to create (e.g., 'pid').
             controller_params (Dict[str, Any]): Dictionary containing parameters needed by the
-                                                 controller's constructor (e.g., kp, ki, kd, setpoint).
-                                                 The 'dt' is often handled by the environment, but if the
-                                                 controller needs it at initialization, it should be
-                                                 present here or obtained from a shared config.
+                                                 controller's constructor (e.g., kp, ki, kd, setpoint, dt).
+                                                 The DI container's lambda provider ensures 'dt' is included.
 
         Returns:
             An instance of a Controller subclass.
@@ -46,30 +44,24 @@ class ControllerFactory:
         try:
             if controller_type == 'pid':
                 # Check for required parameters for PIDController
-                required_keys = ['kp', 'ki', 'kd', 'setpoint']
-                # Check if dt is provided, otherwise use a default or raise error
-                # Assuming dt is NOT in controller_params but handled by Environment/SimManager
-                # The PIDController might need a default dt for internal init?
-                if 'dt' not in controller_params:
-                     logger.warning("PID controller 'dt' not found in params. Using default 0.01 for init. Environment should manage actual dt.")
-                     # Add a default dt if PIDController constructor requires it
-                     controller_params['dt'] = 0.01 # Default placeholder if needed
-
-                # Validate presence of required keys
+                # 'dt' MUST now be present in controller_params due to DI lambda adjustment.
+                required_keys = ['kp', 'ki', 'kd', 'setpoint', 'dt']
                 missing_keys = [key for key in required_keys if key not in controller_params]
                 if missing_keys:
-                     raise ValueError(f"Missing required parameters {missing_keys} for 'pid' controller in config.")
+                     # No need for the temporary fallback for 'dt' anymore.
+                     raise ValueError(f"Missing required parameters {missing_keys} for 'pid' controller. Check DI registration lambda and config.")
 
-                # Parameters are valid, create the instance using dictionary unpacking
+                # Parameters seem valid, create the instance using dictionary unpacking
                 logger.debug(f"Creating PIDController with params: {controller_params}")
                 controller = PIDController(**controller_params)
 
             # --- Add other controller types here ---
             # elif controller_type == 'lqr':
             #     # Ensure LQRController specific params are present
-            #     # required_lqr_keys = [...]
-            #     # if not all(key in controller_params for key in required_lqr_keys):
-            #     #    raise ValueError(...)
+            #     required_lqr_keys = [...] # Define required keys for LQR
+            #     missing_keys = [key for key in required_lqr_keys if key not in controller_params]
+            #     if missing_keys:
+            #          raise ValueError(f"Missing required LQR parameters: {missing_keys}")
             #     logger.debug(f"Creating LQRController with params: {controller_params}")
             #     controller = LQRController(**controller_params)
 
@@ -80,14 +72,12 @@ class ControllerFactory:
             return controller
 
         except KeyError as e:
-             # Should be caught by missing_keys check, but kept for safety
              logger.error(f"Unexpected KeyError during controller creation '{controller_type}': {e}", exc_info=True)
              raise ValueError(f"Configuration error: Missing parameter for controller '{controller_type}'") from e
         except ValueError as e: # Catch ValueErrors from checks or unknown type
              logger.error(f"Configuration or parameter error for controller '{controller_type}': {e}", exc_info=True)
-             raise # Re-raise known config/value errors
+             raise
         except TypeError as e:
-             # Catches errors like providing wrong type arguments to the constructor
              logger.error(f"Type error creating controller '{controller_type}'. Check parameter types in config: {e}", exc_info=True)
              raise ValueError(f"Parameter type mismatch for controller '{controller_type}'.") from e
         except Exception as e:

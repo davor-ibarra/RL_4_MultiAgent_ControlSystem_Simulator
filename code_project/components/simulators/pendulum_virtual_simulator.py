@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 import copy # Para deepcopy del controlador
 
 # Importar Interfaces necesarias
-from interfaces.virtual_simulator import VirtualSimulator
+from interfaces.virtual_simulator import VirtualSimulator # Implementar Interfaz
 from interfaces.dynamic_system import DynamicSystem
 from interfaces.controller import Controller
 from interfaces.reward_function import RewardFunction
@@ -13,17 +13,19 @@ from interfaces.reward_function import RewardFunction
 # Obtener logger específico para este módulo
 logger = logging.getLogger(__name__)
 
-class PendulumVirtualSimulator(VirtualSimulator):
+class PendulumVirtualSimulator(VirtualSimulator): # Implementar Interfaz VirtualSimulator
     """
     Implementación de VirtualSimulator para el entorno del Péndulo Invertido.
     Ejecuta simulaciones virtuales de un intervalo de tiempo usando una copia
-    independiente del controlador con ganancias específicas, sin afectar el estado
-    del controlador real.
+    independiente del controlador con ganancias específicas.
+    Recibe sus componentes (System, Controller Template, RewardFunction) inyectados.
     """
     def __init__(self,
+                 # --- Dependencias Inyectadas ---
                  system: DynamicSystem,
                  controller: Controller, # Recibe el controlador REAL como plantilla
                  reward_function: RewardFunction,
+                 # --- Parámetros desde Config ---
                  dt: float):
         """
         Inicializa el simulador virtual.
@@ -41,28 +43,18 @@ class PendulumVirtualSimulator(VirtualSimulator):
         self.reward_function = reward_function
         self.dt = dt
 
-        # --- Validaciones Cruciales ---
-        # Asegurar que la plantilla del controlador tiene los métodos necesarios
+        # --- Validaciones (Mantenidas) ---
         required_methods = ['reset_internal_state', 'update_params', 'compute_action', 'get_params']
         missing_methods = [m for m in required_methods if not hasattr(self.controller_template, m)]
         if missing_methods:
-            msg = f"VirtualSimulator: La plantilla del controlador ({type(controller).__name__}) NO tiene los métodos requeridos: {missing_methods}"
-            logger.error(msg)
-            raise AttributeError(msg)
-        # Asegurar que tiene las ganancias como atributos (para get/set)
-        required_attrs = ['kp', 'ki', 'kd']
-        missing_attrs = [a for a in required_attrs if not hasattr(self.controller_template, a)]
-        if missing_attrs:
-            msg = f"VirtualSimulator: La plantilla del controlador ({type(controller).__name__}) NO tiene los atributos requeridos: {missing_attrs}"
-            logger.error(msg)
-            raise AttributeError(msg)
+            msg = f"VirtualSimulator: Plantilla controlador ({type(controller).__name__}) sin métodos: {missing_methods}"
+            logger.error(msg); raise AttributeError(msg)
+        # No es necesario validar atributos Kp/Ki/Kd aquí, update_params/get_params es suficiente
 
         if not isinstance(dt, (float, int)) or dt <= 0:
-             msg = f"VirtualSimulator: dt inválido ({dt}). Debe ser número positivo."
-             logger.error(msg)
-             raise ValueError(msg)
+             msg = f"VirtualSimulator: dt inválido ({dt})."; logger.error(msg); raise ValueError(msg)
 
-        logger.info("PendulumVirtualSimulator inicializado exitosamente (usando plantilla de controlador).")
+        logger.info("PendulumVirtualSimulator inicializado.")
 
 
     def run_interval_simulation(self,
@@ -72,105 +64,56 @@ class PendulumVirtualSimulator(VirtualSimulator):
                                 controller_gains_dict: Dict[str, float]) -> float:
         """
         Ejecuta una simulación virtual autocontenida para un intervalo.
-
-        Args:
-            initial_state_vector: Estado inicial [cart_pos, cart_vel, angle, angular_vel].
-            start_time: Tiempo inicial t.
-            duration: Duración del intervalo a simular (e.g., decision_interval).
-            controller_gains_dict: Diccionario {'kp': Kp_virt, 'ki': Ki_virt, 'kd': Kd_virt}
-                                   a usar FIJAS durante esta simulación virtual.
-
-        Returns:
-            float: Recompensa total acumulada durante la simulación virtual.
-                   Devuelve 0.0 si la duración es no positiva o si ocurren errores críticos.
+        Implementa el método de la interfaz.
         """
-        # Validar duración
-        if duration <= 0:
-            logger.warning("VirtualSimulator: Duración no positiva solicitada. Devolviendo recompensa 0.")
-            return 0.0
+        # ... (lógica mantenida como estaba, usa componentes inyectados) ...
+        if duration <= 0: return 0.0
 
-        # Clonar estado inicial para no modificar el original
         virtual_state = np.array(initial_state_vector).flatten()
         virtual_time = start_time
         accumulated_reward: float = 0.0
-        # Calcular número de pasos (asegurar al menos 1 si duration > 0)
         num_steps = max(1, int(round(duration / self.dt)))
-        # logger.debug(f"VirtualSim Start: t={start_time:.4f}, duration={duration:.4f}, steps={num_steps}, "
-        #              f"Gains={controller_gains_dict}, InitState={np.round(virtual_state, 4)}")
+        # logger.debug(f"VirtualSim Start: t={start_time:.4f}, dur={duration:.4f}, steps={num_steps}, gains={controller_gains_dict}")
 
-        # --- Crear copia INDEPENDIENTE del controlador para esta simulación ---
+        virtual_controller: Optional[Controller] = None # Para finally
         try:
-            # Usar deepcopy para asegurar aislamiento total del estado interno (errores, integral)
+            # --- Crear copia INDEPENDIENTE del controlador ---
             virtual_controller = copy.deepcopy(self.controller_template)
-            # logger.debug(f"VirtualSim: Copia del controlador creada (ID: {id(virtual_controller)})")
-        except Exception as e:
-            logger.error(f"VirtualSimulator CRITICAL: Fallo al hacer deepcopy de la plantilla del controlador: {e}", exc_info=True)
-            # Devolver recompensa muy negativa en caso de fallo crítico
-            return -1.0e6 # Usar un valor grande negativo
+            # logger.debug(f"VirtualSim: Copia controlador creada (ID: {id(virtual_controller)})")
 
-
-        try:
-            # --- Configurar el controlador virtual ---
-            # 1. Resetear su estado interno (errores, integral)
+            # --- Configurar controlador virtual ---
             virtual_controller.reset_internal_state()
+            kp_v, ki_v, kd_v = controller_gains_dict['kp'], controller_gains_dict['ki'], controller_gains_dict['kd']
+            virtual_controller.update_params(kp_v, ki_v, kd_v)
+            # logger.debug(f"VirtualSim (ID: {id(virtual_controller)}): Gains set Kp={kp_v:.3f}, Ki={ki_v:.3f}, Kd={kd_v:.3f}")
 
-            # 2. Establecer las ganancias fijas para esta simulación virtual
-            kp_virt = controller_gains_dict['kp']
-            ki_virt = controller_gains_dict['ki']
-            kd_virt = controller_gains_dict['kd']
-            virtual_controller.update_params(kp_virt, ki_virt, kd_virt)
-            # logger.debug(f"VirtualSim (ID: {id(virtual_controller)}): Gains set to Kp={kp_virt:.3f}, Ki={ki_virt:.3f}, Kd={kd_virt:.3f}")
-
-            # --- Bucle de Simulación Virtual ---
-            for _ in range(num_steps): # Iterar el número de pasos calculado
-
-                # a. Calcular acción virtual usando el estado virtual y las ganancias virtuales fijas
-                try:
-                    virtual_force = virtual_controller.compute_action(virtual_state)
-                except Exception as e:
-                    logger.error(f"VirtualSim (ID: {id(virtual_controller)}): Error calculando acción virtual en t={virtual_time:.4f}: {e}", exc_info=True)
-                    virtual_force = 0.0 # Acción neutral si falla
-
-                # b. Aplicar acción al sistema para obtener siguiente estado virtual
-                #    (El sistema es compartido, pero asumimos que apply_action es stateless respecto al historial)
-                try:
-                    next_virtual_state = self.system.apply_action(virtual_state, virtual_force, virtual_time, self.dt)
-                except Exception as e:
-                    logger.error(f"VirtualSim (ID: {id(virtual_controller)}): Error aplicando acción virtual al sistema en t={virtual_time:.4f}: {e}", exc_info=True)
-                    next_virtual_state = virtual_state # Mantener estado si dinámica falla
-
-                # c. Calcular recompensa instantánea para este paso virtual
-                try:
-                    # Usar la función de recompensa compartida
-                    inst_reward, _ = self.reward_function.calculate(virtual_state, virtual_force, next_virtual_state, virtual_time)
-                    accumulated_reward += inst_reward
-                except Exception as e:
-                    logger.error(f"VirtualSim (ID: {id(virtual_controller)}): Error calculando recompensa virtual en t={virtual_time:.4f}: {e}", exc_info=True)
-                    # No sumar recompensa si el cálculo falla
-
-                # d. Actualizar estado y tiempo virtuales para el siguiente paso
-                virtual_state = next_virtual_state
-                virtual_time += self.dt
-
-            # --- Fin del Bucle Virtual ---
+            # --- Bucle Simulación Virtual ---
+            for _ in range(num_steps):
+                 # Calcular acción virtual
+                 virtual_force = virtual_controller.compute_action(virtual_state)
+                 # Aplicar acción al sistema
+                 next_virtual_state = self.system.apply_action(virtual_state, virtual_force, virtual_time, self.dt)
+                 # Calcular recompensa instantánea
+                 inst_reward, _ = self.reward_function.calculate(virtual_state, virtual_force, next_virtual_state, virtual_time)
+                 # Asegurar que la recompensa es finita
+                 accumulated_reward += inst_reward if np.isfinite(inst_reward) else 0.0
+                 # Actualizar estado y tiempo
+                 virtual_state = next_virtual_state
+                 virtual_time += self.dt
 
         except KeyError as e:
-            logger.error(f"VirtualSimulator: Falta clave de ganancia en controller_gains_dict: {e}. Gains recibidos: {controller_gains_dict}")
-            accumulated_reward = -1.0e6 # Penalizar fuertemente
-        except AttributeError as e: # Si la copia del controlador no tiene un método esperado
-             logger.error(f"VirtualSimulator: Error de atributo en controlador virtual (ID: {id(virtual_controller)}): {e}", exc_info=True)
-             accumulated_reward = -1.0e6
+            logger.error(f"VirtualSim: Falta clave ganancia: {e}. Gains: {controller_gains_dict}"); accumulated_reward = -1.0e6
+        except AttributeError as e:
+             logger.error(f"VirtualSim: Error atributo controlador virtual (ID: {id(virtual_controller)}): {e}", exc_info=True); accumulated_reward = -1.0e6
         except Exception as e:
-            logger.error(f"VirtualSimulator: Error inesperado durante simulación virtual (ID: {id(virtual_controller)}): {e}", exc_info=True)
-            accumulated_reward = -1.0e6 # Penalizar fuertemente
+            sim_id_str = f"(ID: {id(virtual_controller)})" if virtual_controller else ""
+            logger.error(f"VirtualSim {sim_id_str}: Error inesperado: {e}", exc_info=True); accumulated_reward = -1.0e6
         finally:
-             # No es estrictamente necesario, pero ayuda al GC a liberar la copia
-             del virtual_controller
+             del virtual_controller # Ayudar al GC
 
         # logger.debug(f"VirtualSim Finish: Accumulated Reward = {accumulated_reward:.4f}")
-        # Asegurar que devolvemos un float estándar
         final_reward = float(accumulated_reward)
         if pd.isna(final_reward) or not np.isfinite(final_reward):
-             logger.warning(f"VirtualSimulator: Recompensa acumulada final es inválida ({final_reward}). Devolviendo 0.0.")
+             logger.warning(f"VirtualSim: Recompensa final inválida ({final_reward}). Devolviendo 0.0.")
              return 0.0
         return final_reward

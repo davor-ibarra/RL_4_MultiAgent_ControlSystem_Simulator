@@ -10,8 +10,8 @@ from interfaces.rl_agent import RLAgent          # Needed for type hints
 
 # Import specific environment type
 from components.environments.pendulum_environment import PendulumEnvironment
-
-# Factories are no longer called directly here. Instances are received.
+# Import other environment types here
+# from components.environments.other_environment import OtherEnvironment
 
 # Obtener logger específico para este módulo
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class EnvironmentFactory:
             An instance of an Environment subclass.
 
         Raises:
-            ValueError: If environment type is unknown or config is invalid.
+            ValueError: If environment type is unknown or config is invalid/missing required params.
             RuntimeError: For unexpected errors during creation.
         """
         try:
@@ -59,42 +59,41 @@ class EnvironmentFactory:
                  raise ValueError("Configuration missing 'environment' section or it's not a dictionary.")
 
             env_type = env_config.get('type')
+            if not env_type:
+                 raise ValueError("Missing 'type' in 'environment' config section.")
             logger.info(f"Attempting to create environment of type: {env_type}")
 
-            if env_type == 'pendulum_environment':
-                # Get Environment Specific Parameters from config
-                dt = env_config.get('dt')
-                if dt is None:
-                    raise ValueError("Missing required environment parameter in config: 'dt'")
+            environment: Environment # Type hint
 
-                # Get PID adaptation settings needed by PendulumEnvironment
+            if env_type == 'pendulum_environment':
+                # Get Environment Specific Parameters from config needed for constructor
+                dt = env_config.get('dt')
+                if dt is None or not isinstance(dt, (float, int)) or dt <= 0:
+                    raise ValueError("Missing or invalid required environment parameter in config: 'dt' must be a positive number.")
+
+                # Get PID adaptation settings needed by PendulumEnvironment constructor
                 pid_adapt_cfg = config.get('pid_adaptation', {})
                 reset_gains = pid_adapt_cfg.get('reset_gains_each_episode')
-                if reset_gains is None: # gain_step/variable_step are now agent/controller concerns
-                     raise ValueError("Missing required parameter in 'pid_adaptation' config section: 'reset_gains_each_episode'")
-
+                if reset_gains is None or not isinstance(reset_gains, bool):
+                     raise ValueError("Missing or invalid required parameter in 'pid_adaptation' config: 'reset_gains_each_episode' must be boolean.")
 
                 # --- Create Environment Instance ---
                 logger.debug("Creating PendulumEnvironment instance...")
                 environment = PendulumEnvironment(
-                    system=system_instance,             # Use resolved instance
-                    controller=controller_instance,       # Use resolved instance
-                    agent=agent_instance,               # Use resolved instance
-                    reward_function=reward_function_instance, # Use resolved instance
+                    system=system_instance,
+                    controller=controller_instance,
+                    agent=agent_instance,
+                    reward_function=reward_function_instance,
                     dt=dt,
                     reset_gains=reset_gains,
-                    config=config # Pass full config for potential internal use
+                    config=config # Pass full config for internal use (e.g., termination checks)
                 )
 
             # --- Add other environment types here ---
             # elif env_type == 'other_environment':
             #     # Get specific params for OtherEnvironment
-            #     # other_params = ...
-            #     environment = OtherEnvironment(
-            #         system=system_instance,
-            #         controller=controller_instance,
-            #         ... # Pass necessary components and params
-            #     )
+            #     # ... validation ...
+            #     environment = OtherEnvironment(...)
 
             else:
                 raise ValueError(f"Unknown environment type specified in config: {env_type}")
@@ -103,12 +102,11 @@ class EnvironmentFactory:
             return environment
 
         except KeyError as e:
-            # This might happen if config structure is wrong or expected keys are missing
             logger.error(f"Missing configuration key required for environment '{env_type}': {e}", exc_info=True)
             raise ValueError(f"Invalid configuration for environment '{env_type}': Missing key {e}") from e
         except ValueError as e: # Catch ValueErrors from checks or unknown type
             logger.error(f"Configuration error creating environment '{env_type}': {e}", exc_info=True)
-            raise # Re-raise known config/value errors
+            raise
         except TypeError as e:
              # If a received instance (system, controller, etc.) has the wrong type
              logger.error(f"Type error with provided components for environment '{env_type}': {e}", exc_info=True)

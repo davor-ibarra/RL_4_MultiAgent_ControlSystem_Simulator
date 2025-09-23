@@ -48,9 +48,9 @@ class SystemFactory:
                 if missing_keys:
                     raise ValueError(f"Missing required parameters {missing_keys} for 'inverted_pendulum' system.")
 
-                # Optional parameters with defaults
-                system_params.setdefault('cr', 0.0) # Damping defaults to 0 if not provided
-                system_params.setdefault('ca', 0.0) # Damping defaults to 0 if not provided
+                # Optional parameters handled by InvertedPendulumSystem constructor defaults
+                # system_params.setdefault('cr', 0.0)
+                # system_params.setdefault('ca', 0.0)
 
                 # Create instance using dictionary unpacking
                 logger.debug(f"Creating InvertedPendulumSystem with params: {system_params}")
@@ -58,9 +58,9 @@ class SystemFactory:
 
             # --- Add other system types here ---
             # elif system_type == 'another_system':
-            #     # Ensure required params for AnotherSystem are present
-            #     # required_another_keys = [...]
-            #     # ... validation ...
+            #     required_another_keys = [...]
+            #     missing_keys = [key for key in required_another_keys if key not in system_params]
+            #     if missing_keys: raise ValueError(...)
             #     logger.debug(f"Creating AnotherSystem with params: {system_params}")
             #     system = AnotherSystem(**system_params)
 
@@ -71,14 +71,12 @@ class SystemFactory:
             return system
 
         except KeyError as e:
-             # Should be caught by missing_keys check, but kept for safety
              logger.error(f"Unexpected KeyError during system creation '{system_type}': {e}", exc_info=True)
              raise ValueError(f"Configuration error: Missing parameter for system '{system_type}'") from e
         except ValueError as e: # Catch ValueErrors from checks or unknown type
              logger.error(f"Configuration or parameter error for system '{system_type}': {e}", exc_info=True)
-             raise # Re-raise known config/value errors
+             raise
         except TypeError as e:
-             # Catches errors like providing wrong type arguments to the constructor
              logger.error(f"Type error creating system '{system_type}'. Check parameter types in config: {e}", exc_info=True)
              raise ValueError(f"Parameter type mismatch for system '{system_type}'.") from e
         except Exception as e:

@@ -8,6 +8,9 @@ from interfaces.reward_function import RewardFunction
 from components.analysis.ira_stability_calculator import IRAStabilityCalculator
 from components.analysis.simple_exponential_stability_calculator import SimpleExponentialStabilityCalculator
 from components.rewards.gaussian_reward import GaussianReward
+# Import other reward/calculator types here
+# from components.rewards.other_reward import OtherReward
+# from components.analysis.other_calculator import OtherCalculator
 
 # Obtener logger específico para este módulo
 logger = logging.getLogger(__name__)
@@ -36,6 +39,8 @@ class RewardFactory:
             An instance of a BaseStabilityCalculator subclass, or None.
         """
         logger.debug("Attempting to create StabilityCalculator...")
+        calculator: Optional[BaseStabilityCalculator] = None # Initialize
+
         try:
             stability_config = reward_setup_config.get('stability_calculator', {})
             if not stability_config or not isinstance(stability_config, dict):
@@ -53,26 +58,26 @@ class RewardFactory:
             logger.info(f"Stability calculator enabled. Type requested: {calc_type}")
 
             # --- Get parameters based on type ---
-            params: Optional[Dict] = None
-            if calc_type == 'ira_instantaneous':
-                 params = stability_config.get('ira_params')
-            elif calc_type == 'simple_exponential':
-                 params = stability_config.get('simple_exponential_params')
-            # Add other types here
-            # elif calc_type == 'other_calc':
-            #    params = stability_config.get('other_params')
+            params_key_map = {
+                 'ira_instantaneous': 'ira_params',
+                 'simple_exponential': 'simple_exponential_params',
+                 # 'other_calc': 'other_params', # Add other types here
+            }
+            params_key = params_key_map.get(calc_type)
+            if params_key is None:
+                 logger.error(f"Unknown stability calculator type specified: '{calc_type}'.")
+                 return None
 
+            params = stability_config.get(params_key)
             if params is None:
-                 # This case handles both unknown type and missing params section for a known type
-                 logger.error(f"Parameters section ('{calc_type}_params') not found or calculator type '{calc_type}' is unknown.")
+                 logger.error(f"Parameters section ('{params_key}') not found for calculator type '{calc_type}'.")
                  return None
             if not isinstance(params, dict):
-                 logger.error(f"Parameters section for calculator type '{calc_type}' is not a valid dictionary.")
+                 logger.error(f"Parameters section ('{params_key}') for calculator type '{calc_type}' is not a valid dictionary.")
                  return None
 
             # --- Create instance ---
-            calculator: Optional[BaseStabilityCalculator] = None
-            logger.debug(f"Creating StabilityCalculator '{calc_type}' with params: {params.keys()}")
+            logger.debug(f"Creating StabilityCalculator '{calc_type}' with params: {list(params.keys())}")
             if calc_type == 'ira_instantaneous':
                 calculator = IRAStabilityCalculator(params)
             elif calc_type == 'simple_exponential':
@@ -81,19 +86,17 @@ class RewardFactory:
             # elif calc_type == 'other_type':
             #     calculator = OtherCalculator(params)
             else:
-                # Should have been caught by params check, but for safety
-                logger.error(f"Unknown stability calculator type reached instance creation: {calc_type}")
+                # Should have been caught earlier, but for safety
+                logger.error(f"Logic error: Unknown stability calculator type '{calc_type}' reached instance creation.")
                 return None
 
             logger.info(f"Successfully created stability calculator: {type(calculator).__name__}")
             return calculator
 
         except KeyError as e:
-             # This indicates an issue within the specific calculator's __init__ accessing params
              logger.error(f"Missing required key within params for stability calculator '{calc_type}': {e}", exc_info=True)
              return None
         except ValueError as e:
-             # This indicates a validation error within the specific calculator's __init__
              logger.error(f"Configuration value error for stability calculator '{calc_type}': {e}", exc_info=True)
              return None
         except Exception as e:
@@ -122,65 +125,60 @@ class RewardFactory:
             RuntimeError: For unexpected errors during creation.
         """
         logger.debug("Attempting to create RewardFunction...")
+        reward_function: Optional[RewardFunction] = None # Initialize
+
         try:
             calc_config = reward_setup_config.get('calculation')
             if not calc_config or not isinstance(calc_config, dict):
                 raise ValueError("Configuration missing 'reward_setup.calculation' section or it's not a dictionary.")
 
-            reward_type = calc_config.get('method') # e.g., 'gaussian' or 'stability_calculator'
-            if not reward_type:
+            reward_method = calc_config.get('method') # e.g., 'gaussian' or 'stability_calculator'
+            if not reward_method:
                  raise ValueError("Missing 'method' in 'reward_setup.calculation' config section.")
 
-            logger.info(f"Reward function calculation method requested: {reward_type}")
+            logger.info(f"Reward function calculation method requested: {reward_method}")
 
-            reward_function: Optional[RewardFunction] = None
+            # --- Create Instance Based on Method ---
+            # Currently, only GaussianReward exists, but it handles both methods internally.
+            # If other RewardFunction types are added, expand this logic.
 
-            # Prepare the init_config dict expected by GaussianReward constructor
-            # This centralizes how GaussianReward gets its parameters, regardless of method
-            gaussian_init_config = {
-                'params': calc_config.get('gaussian_params', {}), # Weights/scales live here
-                'use_stability_based_reward': (reward_type == 'stability_calculator'),
-                # Pass stability calculator config subsection for potential future use
-                'stability_calculator_config': reward_setup_config.get('stability_calculator', {})
-            }
+            if reward_method in ['gaussian', 'stability_calculator']:
+                # Prepare the init_config dict expected by GaussianReward constructor
+                gaussian_init_config = {
+                    'params': calc_config.get('gaussian_params', {}),
+                    'use_stability_based_reward': (reward_method == 'stability_calculator'),
+                    'stability_calculator_config': reward_setup_config.get('stability_calculator', {})
+                }
 
-            if reward_type == 'gaussian':
-                # Pass the potentially None stability calculator
-                logger.debug(f"Creating GaussianReward (Gaussian method) with stability_calculator: {type(stability_calculator).__name__}")
-                reward_function = GaussianReward(gaussian_init_config, stability_calculator)
-
-            elif reward_type == 'stability_calculator':
-                 if stability_calculator is None:
-                      # Critical error: requested stability method but no calculator available
-                      logger.error("Reward calculation method is 'stability_calculator', but no stability calculator instance was provided or enabled.")
+                # Validate stability calculator presence if needed
+                if reward_method == 'stability_calculator' and stability_calculator is None:
+                      logger.error("Reward method 'stability_calculator' requires an enabled stability calculator, but none was provided/created.")
                       raise ValueError("Cannot create reward function: 'stability_calculator' method requires an enabled stability calculator.")
 
-                 # Create GaussianReward instance but configured to use stability method
-                 logger.debug(f"Creating GaussianReward (Stability method) with stability_calculator: {type(stability_calculator).__name__}")
-                 reward_function = GaussianReward(gaussian_init_config, stability_calculator)
+                logger.debug(f"Creating GaussianReward (Method: {reward_method}) with stability_calculator: {type(stability_calculator).__name__}")
+                reward_function = GaussianReward(gaussian_init_config, stability_calculator)
 
-            # Add other reward function types here if needed
-            # elif reward_type == 'other_reward':
+            # --- Add other reward function types ---
+            # elif reward_method == 'other_reward_type':
             #     other_params = calc_config.get('other_params', {})
+            #     # Validate params for OtherReward
             #     reward_function = OtherReward(other_params, stability_calculator)
 
             else:
-                raise ValueError(f"Unknown reward calculation method specified: {reward_type}")
+                raise ValueError(f"Unknown reward calculation method specified: {reward_method}")
 
-            logger.info(f"Successfully created reward function: {type(reward_function).__name__} (using method: {reward_type})")
+            logger.info(f"Successfully created reward function: {type(reward_function).__name__} (using method: {reward_method})")
             return reward_function
 
         except KeyError as e:
-             # This indicates an issue within the specific reward function's __init__ accessing params
-             logger.error(f"Missing required key in config for reward function method '{reward_type}': {e}", exc_info=True)
-             raise ValueError(f"Configuration error for reward function '{reward_type}'") from e
+             logger.error(f"Missing required key in config for reward function method '{reward_method}': {e}", exc_info=True)
+             raise ValueError(f"Configuration error for reward function '{reward_method}'") from e
         except ValueError as e: # Catch ValueErrors from checks or unknown type
-            logger.error(f"Configuration error for reward function method '{reward_type}': {e}", exc_info=True)
-            raise # Re-raise known config/value errors
+            logger.error(f"Configuration error for reward function method '{reward_method}': {e}", exc_info=True)
+            raise
         except TypeError as e:
-             # E.g., if stability_calculator has the wrong type
-             logger.error(f"Type error creating reward function '{reward_type}': {e}", exc_info=True)
-             raise TypeError(f"Component type mismatch for reward function '{reward_type}'.") from e
+             logger.error(f"Type error creating reward function '{reward_method}': {e}", exc_info=True)
+             raise TypeError(f"Component type mismatch for reward function '{reward_method}'.") from e
         except Exception as e:
-            logger.error(f"Failed to create reward function using method '{reward_type}': {e}", exc_info=True)
-            raise RuntimeError(f"Unexpected error creating reward function '{reward_type}'") from e
+            logger.error(f"Failed to create reward function using method '{reward_method}': {e}", exc_info=True)
+            raise RuntimeError(f"Unexpected error creating reward function '{reward_method}'") from e
