@@ -1,72 +1,51 @@
 from abc import ABC, abstractmethod
-
-# Interfaz para sistemas dinámicos
+from typing import Dict, Any, Tuple, List, Union
 class DynamicSystem(ABC):
     @abstractmethod
-    def initialize_state(self):
-        pass
-
+    def initialize_state(self) -> None: pass
     @abstractmethod
-    def update_state(self, dt, control_input):
-        pass
-
+    def update_state(self, dt: float, control_input: float) -> List[float]: pass
     @abstractmethod
-    def get_state(self):
-        pass
+    def get_state(self) -> List[float]: pass
+    @abstractmethod
+    def connect_controller(self, controller: "Controller") -> None: pass
 
-    def connect_controller(self, controller):
-        self.controller = controller
-
-# Interfaz para controladores
 class Controller(ABC):
     @abstractmethod
-    def compute(self, error):
-        pass
-
+    def compute(self, state: List[float]) -> float: pass
     @abstractmethod
-    def update_parameters(self, **kwargs):
-        pass
-
-# Interfaz para agentes de aprendizaje por refuerzo
+    def update_parameters(self, **kwargs: Dict[str, Any]) -> None: pass
+    @abstractmethod
+    def reset(self) -> None: pass
 class RLAgent(ABC):
     @abstractmethod
-    def perceive(self, state):
-        pass
-
+    def perceive(self, state: List[float]) -> None: pass
     @abstractmethod
-    def decide(self):
-        pass
-
+    def decide(self, state: List[float]) -> Dict[str, Any]: pass
     @abstractmethod
-    def receive_reward(self, reward, next_state):
-        pass
-
+    def receive_reward(self, reward: float, next_state: List[float]) -> None: pass
     @abstractmethod
-    def update_policy(self):
-        pass
-
+    def update_policy(self) -> None: pass
     @abstractmethod
-    def is_active(self):
-        pass
-
-# Interfaz para entornos de simulación
+    def is_active(self) -> bool: pass
+    @abstractmethod
+    def reset(self) -> None: pass
+    @abstractmethod
+    def reward_successful_trajectory(self, success_factor: float) -> None: pass #Nuevo metodo
 class Environment(ABC):
     @abstractmethod
-    def reset(self):
-        pass
-
+    def reset(self) -> List[float]: pass
     @abstractmethod
-    def step(self, action):
-        pass
-
-# Interfaz para funciones de recompensa
+    def step(self, action: float) -> Tuple[List[float], float, bool, Dict[str, Any]]: pass
+    @abstractmethod
+    def check_termination(self, state: List[float]) -> bool: pass
 class RewardFunction(ABC):
     @abstractmethod
-    def compute_reward(self, state, action, next_state, **kwargs):
-        pass
-
-# Interfaz para recolectores de métricas
+    def compute_reward(self, state: List[float], action: float, next_state: List[float], **kwargs: Dict[str, Any]) -> float: pass
 class MetricsCollector(ABC):
     @abstractmethod
-    def record(self, **kwargs):
-        pass
+    def record(self, **kwargs: Dict[str, Any]) -> None: pass
+
+class ConfigValidator(ABC):
+    @abstractmethod
+    def validate(self, config: Dict[str, Any]) -> str: pass

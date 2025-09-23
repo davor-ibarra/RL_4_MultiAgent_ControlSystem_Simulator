@@ -1,70 +1,175 @@
 {
     "simulation": {
-      "max_episodes": 100,
-      "dt": 0.001,
-      "total_time": 5.0,
-      "use_cart_limit": true,
-      "cart_limit": 5.0,
-      "use_angle_limit": true,
-      "angle_limit": 1.0472,
-      "extract_qtables": true,
-      "extract_frequency": 500,
-      "results_folder": "V3_code\\results_history",
-      "use_controller": true,
-      "use_qlearning": true,
-      "decision_interval": 0.01
+        "max_episodes": 1000,
+        "time_step": 0.02,
+        "decision_interval": 50,
+        "episodes_per_file": 100,
+        "results_folder": "results_history"
     },
-    "physical": {
-      "x0": [0, 0, 0.1745329, 0],
-      "m1": 5.0,
-      "m2": 1.0,
-      "l": 2.0,
-      "cr": 0.0,
-      "ca": 0.0,
-      "g": 9.81
+    "system": {
+        "type": "InvertedPendulum",
+        "parameters": {
+            "m1": 1.0,
+            "m2": 0.1,
+            "l": 0.5,
+            "g": 9.81,
+            "cr": 0.1,
+            "ca": 0.01,
+            "x0": [
+                0.0,
+                0.0,
+                0.1,
+                0.0
+            ],
+            "angle_limit": 0.5235987755982988,
+            "cart_limit": 2.4
+        }
     },
     "controller": {
-      "setpoint": 0.0,
-      "kp": 10,
-      "ki": 0,
-      "kd": 0,
-      "gain_step": 5.0,
-      "variable_step": false,
-      "reset_gains_each_episode": true
+        "type": "PIDController",
+        "parameters": {
+            "kp": 25.0,
+            "ki": 1.0,
+            "kd": 5.0,
+            "setpoint": 0.0,
+            "dt": 0.02,
+            "gain_step": 0.1,
+            "reset_gains_each_episode": true,
+            "kp_min": 0.0,
+            "kp_max": 50.0,
+            "ki_min": 0.0,
+            "ki_max": 10.0,
+            "kd_min": 0.0,
+            "kd_max": 10.0
+        }
     },
     "rl": {
-      "num_actions": 3,
-      "discount_factor": 0.98,
-      "epsilon": 1.0,
-      "epsilon_decay": 0.99954,
-      "epsilon_min": 0.1,
-      "use_epsilon_decay": true,
-      "learning_rate": 1.0,
-      "learning_rate_decay": 0.999425,
-      "learning_rate_min": 0.01,
-      "use_learning_rate_decay": true,
-      "reward_weights": {
-        "stability": 1.0,
-        "force": 0.5,
-        "cart": 0.0,
-        "time": 0.0
-      },
-      "reward_scales": {
-        "angle": 0.1745329,
-        "angular_velocity": 0.5,
-        "cart_position": 2.5,
-        "cart_velocity": 1.25,
-        "force": 1.0,
-        "time": 1.0
-      }
+        "agent_type": "PIDQLearning",
+        "parameters": {
+            "enabled": true
+        },
+        "success_reward_factor": 10.0,
+        "q_table_save_frequency": 100,
+        "sub_agents": {
+            "kp": {
+                "type": "QLearning",
+                "parameters": {
+                    "actions": [
+                        -1.0,
+                         0.0,
+                         1.0
+                    ],
+                    "learning_rate": 0.1,
+                    "discount_factor": 0.9,
+                    "exploration_rate": 0.5,
+                    "exploration_decay": 0.995,
+                    "min_exploration_rate": 0.01,
+                    "variables_to_include": [
+                        "theta",
+                        "theta_dot"
+                    ],
+                    "q_table_filename": "q_table_kp.npy"
+                }
+            },
+            "ki": {
+                "type": "QLearning",
+                "parameters": {
+                    "actions": [
+                        -0.1,
+                        0.0,
+                        0.1
+                    ],
+                    "learning_rate": 0.1,
+                    "discount_factor": 0.9,
+                    "exploration_rate": 0.5,
+                    "exploration_decay": 0.995,
+                    "min_exploration_rate": 0.01,
+                    "variables_to_include": [
+                        "theta",
+                        "theta_dot"
+                    ],
+                    "q_table_filename": "q_table_ki.npy"
+                }
+            },
+            "kd": {
+                "type": "QLearning",
+                "parameters": {
+                    "actions": [
+                         -1.0,
+                         0.0,
+                         1.0
+                    ],
+                    "learning_rate": 0.1,
+                    "discount_factor": 0.9,
+                    "exploration_rate": 0.5,
+                    "exploration_decay": 0.995,
+                    "min_exploration_rate": 0.01,
+                    "variables_to_include": [
+                        "theta",
+                        "theta_dot"
+                    ],
+                    "q_table_filename": "q_table_kd.npy"
+                }
+            }
+        }
+    },
+    "reward": {
+        "type": "GaussianReward",
+        "parameters": {
+            "state_variables": [
+                "theta"
+            ],
+            "std_devs": [
+                0.2
+            ],
+            "weights": [
+                1.0
+            ],
+            "use_next_state": true
+        }
     },
     "state": {
-      "position": { "enabled": false, "min": -5, "max": 5, "bins": 1 },
-      "velocity": { "enabled": false, "min": -5, "max": 5, "bins": 1 },
-      "angle": { "enabled": false, "min": -0.0349066, "max": 0.0349066, "bins": 6 },
-      "angular_velocity": { "enabled": false, "min": -0.1, "max": 0.1, "bins": 6 },
-      "kp": { "enabled": true, "min": 0.0, "max": 100.0, "bins": 21 },
-      "ki": { "enabled": true, "min": 0.0, "max": 100.0, "bins": 21 },
-      "kd": { "enabled": true, "min": 0.0, "max": 100.0, "bins": 21 }
+        "x": {
+            "enabled": false,
+            "min": -2.4,
+            "max": 2.4,
+            "bins": 1
+        },
+        "x_dot": {
+            "enabled": false,
+            "min": -5.0,
+            "max": 5.0,
+            "bins": 1
+        },
+        "theta": {
+            "enabled": true,
+            "min": -0.5235987755982988,
+            "max": 0.5235987755982988,
+            "bins": 20
+        },
+        "theta_dot": {
+            "enabled": true,
+            "min": -2.0,
+            "max": 2.0,
+            "bins": 20
+        },
+        "kp":{
+            "enabled": false,
+            "min": 0.0,
+            "max": 50.0,
+            "bins": 1
+        },
+        "ki":{
+            "enabled": false,
+            "min": 0.0,
+            "max": 10.0,
+            "bins": 1
+        },
+        "kd":{
+            "enabled": false,
+            "min": 0.0,
+            "max": 10.0,
+            "bins": 1
+        }
     }
-  }
+}
