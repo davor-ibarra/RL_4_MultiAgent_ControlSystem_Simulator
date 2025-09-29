@@ -1,0 +1,1572 @@
+{
+    "execution_details": {
+        "framework_version": "8.0.0_Refactor_Scaled_Final",
+        "run_timestamp": "2025-08-17T08:04:17-0400",
+        "output_directory": "c:\\Users\\davor\\Escritorio\\DOCTORADO\\Tesis\\RL_3_AgentsFactory\\V13_code\\results_history_CartPole\\20250817-0804",
+        "python_version": "3.9.13",
+        "command_line_arguments": [
+            "c:/Users/davor/Escritorio/DOCTORADO/Tesis/RL_3_AgentsFactory/V13_code/main.py"
+        ]
+    },
+    "config_used": {
+        "main_config": {
+            "environment": {
+                "type": "pendulum_environment",
+                "module_path": "components.environments.pendulum_environment",
+                "class_name": "PendulumEnvironment",
+                "initial_conditions": {
+                    "x0": {
+                        "cart_position": 0.0,
+                        "cart_velocity": 0.0,
+                        "pendulum_angle": 0.157,
+                        "pendulum_velocity": 0.0
+                    }
+                },
+                "simulation": {
+                    "max_episodes": 5000,
+                    "episode_duration_sec": 5.0,
+                    "dt_sec": 0.001,
+                    "agent_decision_period_sec": 0.02,
+                    "enable_cart_pos_limit": true,
+                    "cart_pos_limit_m": 5.0,
+                    "enable_angle_limit": true,
+                    "pendulum_angle_limit_rad": 1.0472,
+                    "stabilization_criteria": {
+                        "pendulum_and_cart": true,
+                        "angle_threshold": 0.005,
+                        "velocity_threshold": 0.05,
+                        "cart_position_threshold": 3.0
+                    }
+                },
+                "system": {
+                    "type": "inverted_pendulum",
+                    "module_path": "components.systems.inverted_pendulum_system",
+                    "class_name": "InvertedPendulumSystem",
+                    "params": {
+                        "mass_cart_kg": 5.0,
+                        "mass_pendulum_kg": 1.0,
+                        "l": 1.0,
+                        "g": 9.81,
+                        "cart_friction_coef": 0.0,
+                        "pivot_friction_coef": 0.0
+                    }
+                },
+                "controller": {
+                    "type": "pid",
+                    "module_path": "components.controllers.pid_controller",
+                    "class_name": "PIDController",
+                    "params": {
+                        "kp": 1.0,
+                        "ki": 1.0,
+                        "kd": 1.0,
+                        "name_objective_var": "pendulum_angle",
+                        "setpoint": 0.0,
+                        "actuator_limits": [
+                            -1.0,
+                            1.0
+                        ],
+                        "clipping_output": true,
+                        "normalize_output": false,
+                        "error_is_setpoint_minus_pv": false,
+                        "anti_windup": {
+                            "enabled": true,
+                            "method": "conditional",
+                            "back_calculation_betha": 0.1
+                        }
+                    },
+                    "pid_adaptation": {
+                        "enabled": true,
+                        "gain_delta": 0.2,
+                        "per_gain_delta": false,
+                        "reset_policy_on_episode_end": "full_params_and_state"
+                    }
+                },
+                "agent": {
+                    "type": "pid_qlearning",
+                    "module_path": "components.agents.pid_qlearning_agent",
+                    "class_name": "PIDQLearningAgent",
+                    "params": {
+                        "num_actions": 3,
+                        "discount_factor": 0.99,
+                        "epsilon": 1.0,
+                        "epsilon_decay": 0.99907939,
+                        "epsilon_min": 0.01,
+                        "use_epsilon_decay": true,
+                        "learning_rate_mode": "adaptative",
+                        "learning_rate_params": {
+                            "learning_rate": 0.2,
+                            "adaptative_params": {
+                                "type": "decay",
+                                "decay_params": {
+                                    "learning_rate_decay": 0.999401,
+                                    "learning_rate_min": 0.01
+                                },
+                                "incremental_params": {
+                                    "variable": "visits"
+                                }
+                            },
+                            "hybrid_params": {
+                                "layouts": [],
+                                "type": "one_by_one",
+                                "variable": "visits",
+                                "threshold": [
+                                    50
+                                ]
+                            }
+                        },
+                        "state_config": {
+                            "kp": {
+                                "enabled_agent": true,
+                                "min": 0.0,
+                                "max": 5.0,
+                                "bins": 26,
+                                "state_vars": []
+                            },
+                            "ki": {
+                                "enabled_agent": true,
+                                "min": 0.0,
+                                "max": 5.0,
+                                "bins": 26,
+                                "state_vars": []
+                            },
+                            "kd": {
+                                "enabled_agent": true,
+                                "min": 0.0,
+                                "max": 5.0,
+                                "bins": 26,
+                                "state_vars": []
+                            },
+                            "angle": {
+                                "enabled_agent": false,
+                                "min": -0.1,
+                                "max": 0.1,
+                                "bins": 3,
+                                "state_vars": []
+                            },
+                            "angular_velocity": {
+                                "enabled_agent": false,
+                                "min": -0.61,
+                                "max": 0.61,
+                                "bins": 6,
+                                "state_vars": []
+                            },
+                            "cart_position": {
+                                "enabled_agent": false,
+                                "min": -1.0,
+                                "max": 1.0,
+                                "bins": 3,
+                                "state_vars": []
+                            },
+                            "cart_velocity": {
+                                "enabled_agent": false,
+                                "min": -1.0,
+                                "max": 1.0,
+                                "bins": 3,
+                                "state_vars": []
+                            },
+                            "time": {
+                                "enabled_agent": false,
+                                "min": 0.0,
+                                "max": 5.0,
+                                "bins": 2,
+                                "state_vars": []
+                            }
+                        },
+                        "early_stopping_criteria": {
+                            "enabled": false,
+                            "improvement_metric_source": "interval_cumulative_reward",
+                            "patience_type": "adaptive",
+                            "initial_patience_kp": 250,
+                            "initial_patience_ki": 250,
+                            "initial_patience_kd": 250,
+                            "min_patience": 25,
+                            "max_patience": 450,
+                            "patience_adjustment_rate": 10,
+                            "use_stage_learning_for_base_patience": false,
+                            "penalty_reward_params": {
+                                "enabled": false,
+                                "penalty_beta_init_kp": 0.9,
+                                "penalty_beta_init_ki": 0.9,
+                                "penalty_beta_init_kd": 0.9
+                            }
+                        }
+                    }
+                },
+                "reward_setup": {
+                    "penalty_approach": {
+                        "penalty_instantaneous_reward": {
+                            "enabled": true,
+                            "method": "lineal",
+                            "type": "fixed",
+                            "penalty_lineal_params": {
+                                "time": 200.0
+                            },
+                            "penalty_quadratic_params": {
+                                "time": 0.4
+                            }
+                        },
+                        "penalty_delta_var": {
+                            "enabled": false,
+                            "method": "quadratic",
+                            "penalty_delta_var_params": {
+                                "delta_control_action": {
+                                    "weight": 1.0
+                                }
+                            }
+                        }
+                    },
+                    "bonus_approach": {
+                        "goal_bonus_reward": {
+                            "enabled": true,
+                            "static_value": 300.0,
+                            "type": "static",
+                            "decay_type": "exponential",
+                            "decay_time_constant": 2.0,
+                            "base_value": 4000.0,
+                            "min_value": 1000.0
+                        },
+                        "bandwidth_bonus": {
+                            "enabled": true,
+                            "per_step_bonus": 0.2,
+                            "max_total_bonus": 10000,
+                            "ranges": {
+                                "cart_position": [
+                                    -3.0,
+                                    3.0
+                                ],
+                                "pendulum_angle": [
+                                    -0.1,
+                                    0.1
+                                ]
+                            }
+                        }
+                    },
+                    "conditional_approach": {
+                        "dynamic_penalty": {
+                            "enabled": false,
+                            "method": "quadratic",
+                            "dynamic_penalty_params": {
+                                "control_action": {
+                                    "weight": 0.8,
+                                    "condition": {
+                                        "type": "exp",
+                                        "feature": "pendulum_angle",
+                                        "scaled": 0.05,
+                                        "setpoint": 0.75
+                                    }
+                                }
+                            }
+                        },
+                        "dynamic_incentive": {
+                            "enabled": false,
+                            "method": "adaptative",
+                            "dynamic_incentive_lineal_params": {
+                                "pendulum_velocity": {
+                                    "weight": 1.8,
+                                    "x": "error",
+                                    "x_max": 0.25,
+                                    "y_max": 0.1
+                                }
+                            },
+                            "dynamic_incentive_adapt_params": {
+                                "pendulum_velocity": {
+                                    "type": "tanh",
+                                    "y_max": 0.09,
+                                    "strength": 3.0,
+                                    "x": "pendulum_angle",
+                                    "x_sp": 0.75,
+                                    "f_reward": {
+                                        "type": "exp",
+                                        "weight": 1.0,
+                                        "scaled": 0.1
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "reward_strategy": {
+                        "type": "weighted_sum_features",
+                        "strategy_params": {
+                            "weighted_sum_features": {
+                                "agent_defining_vars": [
+                                    "kp",
+                                    "ki",
+                                    "kd"
+                                ]
+                            },
+                            "echo_virtual_baseline_delta": {},
+                            "shadow_baseline_delta": {
+                                "beta": 0.2,
+                                "baseline_init_value": 0.0
+                            }
+                        }
+                    },
+                    "calculation": {
+                        "method": "weighted_exponential",
+                        "weighted_exponential_params": {
+                            "features": {
+                                "pendulum_angle": {
+                                    "weight": 1.0,
+                                    "scaled": 0.1
+                                },
+                                "pendulum_velocity": {
+                                    "weight": 1.0,
+                                    "scaled": 0.1
+                                },
+                                "cart_position": {
+                                    "weight": 0.0,
+                                    "scaled": 1.0
+                                },
+                                "cart_velocity": {
+                                    "weight": 0.5,
+                                    "scaled": 0.25
+                                },
+                                "control_action": {
+                                    "weight": 0.0,
+                                    "scaled": 0.7
+                                }
+                            }
+                        },
+                        "stability_measure": {
+                            "type": "exp_decay_metric",
+                            "exp_decay_metric_params": {
+                                "features": {
+                                    "pendulum_angle": {
+                                        "weight": 1.0,
+                                        "scaled": 0.08
+                                    },
+                                    "pendulum_velocity": {
+                                        "weight": 0.8,
+                                        "scaled": 0.1
+                                    },
+                                    "cart_position": {
+                                        "weight": 0.0,
+                                        "scaled": 1.0
+                                    },
+                                    "cart_velocity": {
+                                        "weight": 0.5,
+                                        "scaled": 0.25
+                                    }
+                                }
+                            },
+                            "ira_zscore_metric_params": {
+                                "lambda_factor": 1.0,
+                                "epsilon_zscore_denominator": 1e-06,
+                                "adaptive_stats": {
+                                    "enabled": false,
+                                    "min_episode": 3000,
+                                    "min_sigma": 0.0001
+                                },
+                                "features": {
+                                    "pendulum_angle": {
+                                        "weight": 0.1,
+                                        "mu": 0.0,
+                                        "sigma": 0.05
+                                    },
+                                    "pendulum_velocity": {
+                                        "weight": 0.1,
+                                        "mu": 0.0,
+                                        "sigma": 0.05
+                                    },
+                                    "cart_position": {
+                                        "weight": 0.1,
+                                        "mu": 0.0,
+                                        "sigma": 0.5
+                                    },
+                                    "cart_velocity": {
+                                        "weight": 0.1,
+                                        "mu": 0.0,
+                                        "sigma": 0.5
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "data_handling": {
+                "output_root": "results_history_CartPole",
+                "episodes_per_dataset_chunk": 250,
+                "save_agent_state": true,
+                "agent_state_save_frequency": 2000,
+                "config_file": "sub_config_data_save_CartPole.yaml"
+            },
+            "visualization": {
+                "enabled": true,
+                "config_file": "sub_config_visualization_CartPole.yaml"
+            },
+            "logging": {
+                "log_to_file": false,
+                "filename": "log_simulation_run.log",
+                "levels": [
+                    "DEBUG",
+                    "INFO",
+                    "WARNING",
+                    "ERROR",
+                    "CRITICAL"
+                ],
+                "log_save_frequency": 100
+            }
+        },
+        "visualization_config": {
+            "plots": [
+                {
+                    "type": "bar",
+                    "enabled": true,
+                    "source": "summary",
+                    "variable": "termination_reason",
+                    "output_filename": "fig1_termination_reason_distribution.png",
+                    "config": {
+                        "title": "Termination Reason Distribution",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Episode Group [-]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Count [-]",
+                        "ylabel_fontsize": 16,
+                        "ymin": 0,
+                        "ymax": null,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": null,
+                        "num_yticks": null,
+                        "show_legend": true,
+                        "legend_pos": "outside",
+                        "legend_fontsize": "medium",
+                        "grid_on": false,
+                        "group_size": 1000,
+                        "cmap": "tab20",
+                        "bar_width": 0.8
+                    }
+                },
+                {
+                    "type": "line",
+                    "enabled": true,
+                    "source": "summary",
+                    "x_variable": "episode",
+                    "y_variable": "total_reward",
+                    "output_filename": "fig2_cumulative_reward_per_episode.png",
+                    "config": {
+                        "title": "Cumulative Reward per Episode",
+                        "title_fontsize": 14,
+                        "figsize_w": 12,
+                        "figsize_h": 6,
+                        "xlabel": "Episode [-]",
+                        "xlabel_fontsize": 12,
+                        "ylabel": "Total Reward [-]",
+                        "ylabel_fontsize": 12,
+                        "xmin": null,
+                        "xmax": null,
+                        "ymin": null,
+                        "ymax": null,
+                        "tick_fontsize": 10,
+                        "xtick_rotation": 30,
+                        "num_xticks": null,
+                        "num_yticks": null,
+                        "show_legend": false,
+                        "legend_pos": "best",
+                        "grid_on": false,
+                        "line_color": "#1f77b4",
+                        "line_width": 1.0,
+                        "marker_style": "o",
+                        "marker_size": 3,
+                        "marker_color": "#ff7f0e",
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "line",
+                    "enabled": false,
+                    "source": "summary",
+                    "x_variable": "episode",
+                    "y_variable": "time_duration",
+                    "output_filename": "fig3_episode_duration_per_episode.png",
+                    "config": {
+                        "title": "Episode Duration per Episode",
+                        "title_fontsize": 14,
+                        "figsize_w": 12,
+                        "figsize_h": 6,
+                        "xlabel": "Episode [-]",
+                        "xlabel_fontsize": 12,
+                        "ylabel": "Duration [s]",
+                        "ylabel_fontsize": 12,
+                        "xmin": null,
+                        "xmax": null,
+                        "ymin": 0,
+                        "ymax": null,
+                        "tick_fontsize": 10,
+                        "xtick_rotation": 30,
+                        "num_xticks": null,
+                        "num_yticks": null,
+                        "show_legend": false,
+                        "legend_pos": "best",
+                        "grid_on": false,
+                        "line_color": "#1f77b4",
+                        "line_width": 1.5,
+                        "marker_style": "o",
+                        "marker_size": 3,
+                        "marker_color": "#ff7f0e",
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "line",
+                    "enabled": true,
+                    "source": "summary",
+                    "x_variable": "episode",
+                    "y_variable": "performance",
+                    "output_filename": "fig4_performance_per_episode.png",
+                    "config": {
+                        "title": "Performance per Episode",
+                        "title_fontsize": 14,
+                        "figsize_w": 12,
+                        "figsize_h": 6,
+                        "xlabel": "Episode [-]",
+                        "xlabel_fontsize": 12,
+                        "ylabel": "Performance [-/s]",
+                        "ylabel_fontsize": 12,
+                        "xmin": null,
+                        "xmax": null,
+                        "ymin": 0,
+                        "ymax": null,
+                        "tick_fontsize": 10,
+                        "xtick_rotation": 30,
+                        "num_xticks": null,
+                        "num_yticks": null,
+                        "show_legend": false,
+                        "legend_pos": "best",
+                        "grid_on": false,
+                        "line_color": "#1f77b4",
+                        "line_width": 1.0,
+                        "marker_style": "o",
+                        "marker_size": 3,
+                        "marker_color": "#ff7f0e",
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_time_vs_pendulum_angle",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "pendulum_angle",
+                    "value_variable": "time",
+                    "output_filename": "fig5_heatmap_time_vs_pendulum_angle.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Pendulum Angle",
+                        "title_fontsize": 30,
+                        "figsize_w": 16,
+                        "figsize_h": 12,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 28,
+                        "ylabel": "Pendulum Angle [rad]",
+                        "ylabel_fontsize": 28,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": -0.17,
+                        "ymax": 0.17,
+                        "tick_fontsize": 24,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency [-]",
+                        "clabel_fontsize": 26,
+                        "cmin": null,
+                        "cmax": 15000,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_time_vs_pendulum_angle(goal_reached)",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "pendulum_angle",
+                    "value_variable": "time",
+                    "output_filename": "fig6_heatmap_time_vs_pendulum_angle(goal_reached).png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Pendulum Angle (goal_reached)",
+                        "title_fontsize": 30,
+                        "figsize_w": 16,
+                        "figsize_h": 12,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 28,
+                        "ylabel": "Pendulum Angle [rad]",
+                        "ylabel_fontsize": 28,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": -0.17,
+                        "ymax": 0.17,
+                        "tick_fontsize": 24,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency [-]",
+                        "clabel_fontsize": 26,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": [
+                            "goal_reached"
+                        ]
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": false,
+                    "name": "heatmap_time_vs_pendulum_velocity",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "pendulum_velocity",
+                    "value_variable": "time",
+                    "output_filename": "fig7_heatmap_time_vs_pendulum_velocity.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Angular Velocity",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Pendulum Velocity (rad/s)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": -0.1,
+                        "ymax": 0.1,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency [-]",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_pendulum_angle_vs_pendulum_velocity",
+                    "source": "detailed",
+                    "x_variable": "pendulum_angle",
+                    "y_variable": "pendulum_velocity",
+                    "value_variable": "pendulum_angle",
+                    "output_filename": "fig8_heatmap_pendulum_angle_vs_pendulum_velocity.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Angle vs Angular Velocity",
+                        "title_fontsize": 30,
+                        "figsize_w": 16,
+                        "figsize_h": 12,
+                        "xlabel": "Pendulum Angle (rad)",
+                        "xlabel_fontsize": 28,
+                        "ylabel": "Pendulum Velocity (rad/s)",
+                        "ylabel_fontsize": 28,
+                        "xmin": -0.17,
+                        "xmax": 0.17,
+                        "ymin": -0.25,
+                        "ymax": 0.25,
+                        "tick_fontsize": 24,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency [-]",
+                        "clabel_fontsize": 26,
+                        "cmin": null,
+                        "cmax": 20000,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_cart_position_vs_cart_velocity",
+                    "source": "detailed",
+                    "x_variable": "cart_position",
+                    "y_variable": "cart_velocity",
+                    "value_variable": "cart_position",
+                    "output_filename": "fig8_heatmap_cart_position_vs_cart_velocity.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Cart Position vs Cart Velocity",
+                        "title_fontsize": 30,
+                        "figsize_w": 16,
+                        "figsize_h": 12,
+                        "xlabel": "Cart Position (m)",
+                        "xlabel_fontsize": 28,
+                        "ylabel": "Cart Velocity (m/s)",
+                        "ylabel_fontsize": 28,
+                        "xmin": -4.0,
+                        "xmax": 4.0,
+                        "ymin": -2.0,
+                        "ymax": 2.0,
+                        "tick_fontsize": 24,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency [-]",
+                        "clabel_fontsize": 26,
+                        "cmin": null,
+                        "cmax": 15000,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": false,
+                    "name": "heatmap_time_vs_cart_position",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "cart_position",
+                    "value_variable": "time",
+                    "output_filename": "fig9_heatmap_time_vs_cart_position.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Cart Position",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Cart Position (m)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": -3.0,
+                        "ymax": 3.0,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 6,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": false,
+                    "name": "heatmap_time_vs_cart_position(goal_reached)",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "cart_position",
+                    "value_variable": "time",
+                    "output_filename": "fig10_heatmap_time_vs_cart_position(goal_reached).png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Cart Position (goal_reached)",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Cart Position (m)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": null,
+                        "ymax": null,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": [
+                            "goal_reached"
+                        ]
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": false,
+                    "name": "heatmap_time_vs_cart_velocity(goal_reached)",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "cart_velocity",
+                    "value_variable": "time",
+                    "output_filename": "fig10_heatmap_time_vs_cart_velocity(goal_reached).png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Cart Velocity (goal_reached)",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Cart Velocity (m)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": null,
+                        "ymax": null,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": [
+                            "goal_reached"
+                        ]
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": false,
+                    "name": "heatmap_time_vs_cart_velocity",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "cart_velocity",
+                    "value_variable": "time",
+                    "output_filename": "fig11_heatmap_time_vs_cart_velocity.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Cart Velocity",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Cart Velocity (m/s)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": -1.5,
+                        "ymax": 1.5,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_time_vs_control_action",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "limited_control_action",
+                    "value_variable": "time",
+                    "output_filename": "fig12_heatmap_time_vs_normalize_control_action.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Control action",
+                        "title_fontsize": 30,
+                        "figsize_w": 16,
+                        "figsize_h": 12,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 28,
+                        "ylabel": "Control action (N)",
+                        "ylabel_fontsize": 28,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": -0.5,
+                        "ymax": 0.5,
+                        "tick_fontsize": 24,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 7,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 26,
+                        "cmin": null,
+                        "cmax": 15000,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_time_vs_control_action(goal_reached)",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "limited_control_action",
+                    "value_variable": "time",
+                    "output_filename": "fig13_heatmap_time_vs_normalize_control_action(goal_reached).png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Control action (goal_reached)",
+                        "title_fontsize": 30,
+                        "figsize_w": 16,
+                        "figsize_h": 12,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 28,
+                        "ylabel": "Control action (N)",
+                        "ylabel_fontsize": 28,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": -0.5,
+                        "ymax": 0.5,
+                        "tick_fontsize": 24,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 7,
+                        "clabel": "Frequency [-]",
+                        "clabel_fontsize": 26,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": [
+                            "goal_reached"
+                        ]
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": false,
+                    "name": "heatmap_time_vs_cart_force",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "cart_force",
+                    "value_variable": "time",
+                    "output_filename": "fig14_heatmap_time_vs_cart_force.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Cart Force",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Cart Force (N)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": -50.0,
+                        "ymax": 50.0,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": false,
+                    "name": "heatmap_time_vs_cart_force(goal_reached)",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "cart_force",
+                    "value_variable": "time",
+                    "output_filename": "fig15_heatmap_time_vs_cart_force(goal_reached).png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Cart Force (goal_reached)",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Cart Force (N)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 5,
+                        "ymin": -50.0,
+                        "ymax": 50.0,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": [
+                            "goal_reached"
+                        ]
+                    }
+                }
+            ]
+        },
+        "logging_config": {
+            "log_to_file": false,
+            "filename": "log_simulation_run.log",
+            "levels": [
+                "DEBUG",
+                "INFO",
+                "WARNING",
+                "ERROR",
+                "CRITICAL"
+            ],
+            "log_save_frequency": 100
+        },
+        "data_handling_directives": {
+            "config": {
+                "enabled_json_history": true,
+                "enabled_summary": true,
+                "summary_first_cols": [
+                    "episode",
+                    "episode_wall_time_sec",
+                    "epsilon",
+                    "learning_rate",
+                    "gain_delta",
+                    "total_agent_decisions",
+                    "time_duration",
+                    "termination_reason",
+                    "total_reward",
+                    "performance",
+                    "avg_stability_score",
+                    "final_kp",
+                    "final_ki",
+                    "final_kd"
+                ],
+                "enabled_summary_stats": true,
+                "statistics_metrics": [
+                    "_mean",
+                    "sigma",
+                    "_min",
+                    "p25",
+                    "p50",
+                    "p75",
+                    "_max"
+                ]
+            },
+            "components": {
+                "env": [
+                    {
+                        "params": "episode_id",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history",
+                            "summary"
+                        ],
+                        "summary_stats": false,
+                        "alias": "episode"
+                    },
+                    {
+                        "params": "time",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": false
+                    },
+                    {
+                        "params": "time",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false,
+                        "alias": "time_duration"
+                    },
+                    {
+                        "params": "cart_position",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "cart_velocity",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "pendulum_angle",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "pendulum_velocity",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "cart_force",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    }
+                ],
+                "controller": [
+                    {
+                        "params": "kp",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "ki",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "kd",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "kp",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false,
+                        "alias": "final_kp"
+                    },
+                    {
+                        "params": "ki",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false,
+                        "alias": "final_ki"
+                    },
+                    {
+                        "params": "kd",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false,
+                        "alias": "final_kd"
+                    },
+                    {
+                        "params": "control_action",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "limited_control_action",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "normalize_control_action",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "current_error",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "error"
+                    },
+                    {
+                        "params": "current_accumulated_integral_error",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "integral_error"
+                    },
+                    {
+                        "params": "current_derivative_error",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "derivative_error"
+                    },
+                    {
+                        "params": "last_proportional_term",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "p_term"
+                    },
+                    {
+                        "params": "last_integral_term",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "i_term"
+                    },
+                    {
+                        "params": "last_derivative_term",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "d_term"
+                    }
+                ],
+                "agent": [
+                    {
+                        "params": "action_kp",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": false
+                    },
+                    {
+                        "params": "action_ki",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": false
+                    },
+                    {
+                        "params": "action_kd",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": false
+                    },
+                    {
+                        "params": "interval_reward",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "learning_rate",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false
+                    },
+                    {
+                        "params": "epsilon",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false
+                    }
+                ],
+                "stability": [
+                    {
+                        "params": "stability_score",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "avg_stability_score_interval",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    }
+                ],
+                "reward_calc": [
+                    {
+                        "params": "reward",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "reward_base_pendulum_angle",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "reward_base_pendulum_velocity",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "reward_base_cart_velocity",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "reward_dp_control_action",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "reward_di_tanh_pendulum_velocity",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "target_pendulum_velocity",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "fixed_penalty",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "reward_penalty_delta_control_action",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "goal_bonus",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    }
+                ],
+                "sim_manager": [
+                    {
+                        "params": "id_agent_decision",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ]
+                    },
+                    {
+                        "params": "total_agent_decisions",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ]
+                    },
+                    {
+                        "params": "episode_wall_time_sec",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ]
+                    },
+                    {
+                        "params": "termination_reason",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "json_history",
+                            "summary"
+                        ]
+                    }
+                ]
+            }
+        }
+    }
+}

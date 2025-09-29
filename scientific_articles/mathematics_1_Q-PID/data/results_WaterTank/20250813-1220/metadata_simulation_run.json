@@ -1,0 +1,1297 @@
+{
+    "execution_details": {
+        "framework_version": "8.0.0_Refactor_Scaled_Final",
+        "run_timestamp": "2025-08-13T12:20:14-0400",
+        "output_directory": "c:\\Users\\davor\\Escritorio\\DOCTORADO\\Tesis\\RL_3_AgentsFactory\\V13_code\\results_history_WaterTank\\20250813-1220",
+        "python_version": "3.9.13",
+        "command_line_arguments": [
+            "c:/Users/davor/Escritorio/DOCTORADO/Tesis/RL_3_AgentsFactory/V13_code/main.py"
+        ]
+    },
+    "config_used": {
+        "main_config": {
+            "environment": {
+                "type": "water_tank_environment",
+                "module_path": "components.environments.water_tank_environment",
+                "class_name": "WaterTankEnvironment",
+                "initial_conditions": {
+                    "x0": {
+                        "level": 0.5
+                    }
+                },
+                "simulation": {
+                    "max_episodes": 5000,
+                    "episode_duration_sec": 6.0,
+                    "dt_sec": 0.001,
+                    "agent_decision_period_sec": 0.05,
+                    "enable_level_limit": true,
+                    "level_limit": 1.0,
+                    "stabilization_criteria": {
+                        "level_threshold": 0.01,
+                        "level_rate_threshold": 0.01
+                    }
+                },
+                "system": {
+                    "type": "water_tank_system",
+                    "module_path": "components.systems.water_tank_system_v1_OneValveControl",
+                    "class_name": "WaterTankSystem",
+                    "params": {
+                        "area_m2": 0.19635,
+                        "inflow_pump_P_max_pa": 100000.0,
+                        "inflow_pump_opening_u": 1.0,
+                        "inflow_pump_k": "1.5e7",
+                        "inflow_coeff_Cd": 0.9,
+                        "inflow_ao_m2": 0.0019625,
+                        "inflow_opening_u": 0.0,
+                        "outflow_pump_P_max_pa": 100000.0,
+                        "outflow_pump_opening_u": 1.0,
+                        "outflow_pump_k": "1.5e7",
+                        "outflow_coeff_Cd": 0.9,
+                        "outflow_ao_m2": 0.0019625,
+                        "outflow_opening_u": 0.2,
+                        "fluid_density_kg_m3": 1000.0,
+                        "g_accel": 9.81,
+                        "max_level_m": 1.0
+                    }
+                },
+                "controller": {
+                    "type": "pid",
+                    "module_path": "components.controllers.pid_controller",
+                    "class_name": "PIDController",
+                    "params": {
+                        "kp": 1.0,
+                        "ki": 1.0,
+                        "kd": 1.0,
+                        "name_objective_var": "level",
+                        "setpoint": 0.75,
+                        "actuator_limits": [
+                            0.0,
+                            1.0
+                        ],
+                        "clipping_output": true,
+                        "normalize_output": true,
+                        "error_is_setpoint_minus_pv": true,
+                        "anti_windup": {
+                            "enabled": true,
+                            "method": "conditional",
+                            "back_calculation_beta": 0.1
+                        }
+                    },
+                    "pid_adaptation": {
+                        "enabled": true,
+                        "gain_delta": 0.2,
+                        "per_gain_delta": false,
+                        "reset_policy_on_episode_end": "full_params_and_state"
+                    }
+                },
+                "agent": {
+                    "type": "pid_qlearning",
+                    "module_path": "components.agents.pid_qlearning_agent",
+                    "class_name": "PIDQLearningAgent",
+                    "params": {
+                        "num_actions": 3,
+                        "discount_factor": 0.99,
+                        "epsilon": 1.0,
+                        "epsilon_decay": 0.99942452,
+                        "epsilon_min": 0.1,
+                        "use_epsilon_decay": true,
+                        "learning_rate_mode": "adaptative",
+                        "learning_rate_params": {
+                            "learning_rate": 0.2,
+                            "adaptative_params": {
+                                "type": "decay",
+                                "decay_params": {
+                                    "learning_rate_decay": 0.9997228,
+                                    "learning_rate_min": 0.05
+                                },
+                                "incremental_params": {
+                                    "variable": "visits"
+                                }
+                            },
+                            "hybrid_params": {
+                                "layouts": [],
+                                "type": "one_by_one",
+                                "variable": "visits",
+                                "threshold": [
+                                    50
+                                ]
+                            }
+                        },
+                        "state_config": {
+                            "kp": {
+                                "enabled_agent": true,
+                                "min": 0.0,
+                                "max": 5.0,
+                                "bins": 26,
+                                "state_vars": []
+                            },
+                            "ki": {
+                                "enabled_agent": true,
+                                "min": 0.0,
+                                "max": 5.0,
+                                "bins": 26,
+                                "state_vars": []
+                            },
+                            "kd": {
+                                "enabled_agent": true,
+                                "min": 0.0,
+                                "max": 5.0,
+                                "bins": 26,
+                                "state_vars": []
+                            },
+                            "level": {
+                                "enabled_agent": false,
+                                "min": 0.2,
+                                "max": 1.0,
+                                "bins": 4,
+                                "state_vars": []
+                            },
+                            "level_rate": {
+                                "enabled_agent": false,
+                                "min": -0.5,
+                                "max": 0.5,
+                                "bins": 11,
+                                "state_vars": []
+                            },
+                            "time": {
+                                "enabled_agent": false,
+                                "min": 0.0,
+                                "max": 5.0,
+                                "bins": 2,
+                                "state_vars": []
+                            }
+                        },
+                        "early_stopping_criteria": {
+                            "enabled": false,
+                            "improvement_metric_source": "interval_cumulative_reward",
+                            "patience_type": "fixed",
+                            "initial_patience_kp": 5,
+                            "initial_patience_ki": 5,
+                            "initial_patience_kd": 5,
+                            "min_patience": 25,
+                            "max_patience": 450,
+                            "patience_adjustment_rate": 5,
+                            "use_stage_learning_for_base_patience": false,
+                            "penalty_reward_params": {
+                                "enabled": false,
+                                "penalty_beta_init_kp": 0.9,
+                                "penalty_beta_init_ki": 0.9,
+                                "penalty_beta_init_kd": 0.9
+                            }
+                        }
+                    }
+                },
+                "reward_setup": {
+                    "penalty_approach": {
+                        "penalty_instantaneous_reward": {
+                            "enabled": true,
+                            "method": "lineal",
+                            "type": "fixed",
+                            "penalty_lineal_params": {
+                                "time": 2.0
+                            },
+                            "penalty_quadratic_params": {
+                                "time": 0.4
+                            }
+                        },
+                        "penalty_delta_var": {
+                            "enabled": true,
+                            "method": "quadratic",
+                            "penalty_delta_var_params": {
+                                "delta_control_action": {
+                                    "weight": 3.0
+                                }
+                            }
+                        }
+                    },
+                    "bonus_approach": {
+                        "goal_bonus_reward": {
+                            "enabled": true,
+                            "static_value": 300.0,
+                            "type": "static",
+                            "decay_type": "exponential",
+                            "decay_time_constant": 2.5,
+                            "base_value": 3000.0,
+                            "min_value": 1000.0
+                        },
+                        "bandwidth_bonus": {
+                            "enabled": true,
+                            "per_step_bonus": 0.5,
+                            "max_total_bonus": 10000,
+                            "ranges": {
+                                "level": [
+                                    0.5,
+                                    0.75
+                                ]
+                            }
+                        }
+                    },
+                    "conditional_approach": {
+                        "dynamic_penalty": {
+                            "enabled": false,
+                            "method": "quadratic",
+                            "dynamic_penalty_params": {
+                                "control_action": {
+                                    "weight": 0.8,
+                                    "condition": {
+                                        "type": "exp",
+                                        "feature": "level",
+                                        "scaled": 0.05,
+                                        "setpoint": 0.75
+                                    }
+                                }
+                            }
+                        },
+                        "dynamic_incentive": {
+                            "enabled": false,
+                            "method": "adaptative",
+                            "dynamic_incentive_lineal_params": {
+                                "level_rate": {
+                                    "weight": 1.8,
+                                    "x": "error",
+                                    "x_max": 0.25,
+                                    "y_max": 0.1
+                                }
+                            },
+                            "dynamic_incentive_adapt_params": {
+                                "level_rate": {
+                                    "type": "tanh",
+                                    "y_max": 0.09,
+                                    "strength": 3.0,
+                                    "x": "level",
+                                    "x_sp": 0.75,
+                                    "f_reward": {
+                                        "type": "exp",
+                                        "weight": 1.0,
+                                        "scaled": 0.1
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "reward_strategy": {
+                        "type": "weighted_sum_features",
+                        "strategy_params": {
+                            "weighted_sum_features": {
+                                "agent_defining_vars": [
+                                    "kp",
+                                    "ki",
+                                    "kd"
+                                ]
+                            },
+                            "echo_virtual_baseline_delta": {},
+                            "shadow_baseline_delta": {
+                                "beta": 0.2,
+                                "baseline_init_value": 0.0
+                            }
+                        }
+                    },
+                    "calculation": {
+                        "method": "weighted_exponential",
+                        "weighted_exponential_params": {
+                            "features": {
+                                "level": {
+                                    "weight": 1.0,
+                                    "scaled": 0.1,
+                                    "setpoint": 0.75
+                                }
+                            }
+                        },
+                        "stability_measure": {
+                            "type": "exp_decay_metric",
+                            "exp_decay_metric_params": {
+                                "features": {
+                                    "level": {
+                                        "weight": 1.0,
+                                        "scaled": 0.1,
+                                        "setpoint": 0.75
+                                    }
+                                }
+                            },
+                            "ira_zscore_metric_params": {
+                                "lambda_factor": 1.0,
+                                "epsilon_zscore_denominator": 1e-06,
+                                "adaptive_stats": {
+                                    "enabled": false,
+                                    "min_episode": 3000,
+                                    "min_sigma": 0.0001
+                                },
+                                "features": {
+                                    "level": {
+                                        "weight": 0.1,
+                                        "mu": 0.0,
+                                        "sigma": 0.05
+                                    },
+                                    "level_rate": {
+                                        "weight": 0.1,
+                                        "mu": 0.0,
+                                        "sigma": 0.05
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "data_handling": {
+                "output_root": "results_history_WaterTank",
+                "episodes_per_dataset_chunk": 250,
+                "save_agent_state": true,
+                "agent_state_save_frequency": 2000,
+                "config_file": "sub_config_data_save_WaterTank.yaml"
+            },
+            "visualization": {
+                "enabled": true,
+                "config_file": "sub_config_visualization_WaterTank.yaml"
+            },
+            "logging": {
+                "log_to_file": false,
+                "filename": "log_simulation_run.log",
+                "levels": [
+                    "DEBUG",
+                    "INFO",
+                    "WARNING",
+                    "ERROR",
+                    "CRITICAL"
+                ],
+                "log_save_frequency": 100
+            }
+        },
+        "visualization_config": {
+            "plots": [
+                {
+                    "type": "bar",
+                    "enabled": true,
+                    "source": "summary",
+                    "variable": "termination_reason",
+                    "output_filename": "fig1_termination_reason_distribution.png",
+                    "config": {
+                        "title": "Termination Reason Distribution",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Episode Group [-]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Count [-]",
+                        "ylabel_fontsize": 16,
+                        "ymin": 0,
+                        "ymax": null,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": null,
+                        "num_yticks": null,
+                        "show_legend": true,
+                        "legend_pos": "outside",
+                        "legend_fontsize": "medium",
+                        "grid_on": false,
+                        "group_size": 1000,
+                        "cmap": "tab20",
+                        "bar_width": 0.8
+                    }
+                },
+                {
+                    "type": "line",
+                    "enabled": true,
+                    "source": "summary",
+                    "x_variable": "episode",
+                    "y_variable": "total_reward",
+                    "output_filename": "fig2_cumulative_reward_per_episode.png",
+                    "config": {
+                        "title": "Cumulative Reward per Episode",
+                        "title_fontsize": 14,
+                        "figsize_w": 12,
+                        "figsize_h": 6,
+                        "xlabel": "Episode [-]",
+                        "xlabel_fontsize": 12,
+                        "ylabel": "Total Reward [-]",
+                        "ylabel_fontsize": 12,
+                        "xmin": null,
+                        "xmax": null,
+                        "ymin": null,
+                        "ymax": null,
+                        "tick_fontsize": 10,
+                        "xtick_rotation": 30,
+                        "num_xticks": null,
+                        "num_yticks": null,
+                        "show_legend": false,
+                        "legend_pos": "best",
+                        "grid_on": false,
+                        "line_color": "#1f77b4",
+                        "line_width": 1.0,
+                        "marker_style": "o",
+                        "marker_size": 3,
+                        "marker_color": "#ff7f0e",
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "line",
+                    "enabled": false,
+                    "source": "summary",
+                    "x_variable": "episode",
+                    "y_variable": "episode_time_duration_sec",
+                    "output_filename": "fig3_episode_duration_per_episode.png",
+                    "config": {
+                        "title": "Episode Duration per Episode",
+                        "title_fontsize": 14,
+                        "figsize_w": 12,
+                        "figsize_h": 6,
+                        "xlabel": "Episode [-]",
+                        "xlabel_fontsize": 12,
+                        "ylabel": "Duration [s]",
+                        "ylabel_fontsize": 12,
+                        "xmin": null,
+                        "xmax": null,
+                        "ymin": 0,
+                        "ymax": null,
+                        "tick_fontsize": 10,
+                        "xtick_rotation": 30,
+                        "num_xticks": null,
+                        "num_yticks": null,
+                        "show_legend": false,
+                        "legend_pos": "best",
+                        "grid_on": false,
+                        "line_color": "#1f77b4",
+                        "line_width": 1.5,
+                        "marker_style": "o",
+                        "marker_size": 3,
+                        "marker_color": "#ff7f0e",
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "line",
+                    "enabled": true,
+                    "source": "summary",
+                    "x_variable": "episode",
+                    "y_variable": "performance",
+                    "output_filename": "fig4_performance_per_episode.png",
+                    "config": {
+                        "title": "Performance per Episode",
+                        "title_fontsize": 14,
+                        "figsize_w": 12,
+                        "figsize_h": 6,
+                        "xlabel": "Episode [-]",
+                        "xlabel_fontsize": 12,
+                        "ylabel": "Performance [-/s]",
+                        "ylabel_fontsize": 12,
+                        "xmin": null,
+                        "xmax": null,
+                        "ymin": 0,
+                        "ymax": null,
+                        "tick_fontsize": 10,
+                        "xtick_rotation": 30,
+                        "num_xticks": null,
+                        "num_yticks": null,
+                        "show_legend": false,
+                        "legend_pos": "best",
+                        "grid_on": false,
+                        "line_color": "#1f77b4",
+                        "line_width": 1.0,
+                        "marker_style": "o",
+                        "marker_size": 3,
+                        "marker_color": "#ff7f0e",
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_time_vs_level",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "level",
+                    "value_variable": "time",
+                    "output_filename": "fig5_heatmap_time_vs_level.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Level",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Level [m]",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 6,
+                        "ymin": 0.45,
+                        "ymax": 0.8,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 6,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_time_vs_level(goal_reached)",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "level",
+                    "value_variable": "time",
+                    "output_filename": "fig6_heatmap_time_vs_level(goal_reached).png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Level (goal_reached)",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Level [m]",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 6,
+                        "ymin": 0.45,
+                        "ymax": 0.8,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 6,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": [
+                            "goal_reached"
+                        ]
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_level_rate_vs_level",
+                    "source": "detailed",
+                    "x_variable": "level_rate",
+                    "y_variable": "level",
+                    "value_variable": "level",
+                    "output_filename": "fig7_heatmap_level_rate_vs_level.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Level Rate vs Level",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Level Rate (m/s)",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Level (m)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0.001,
+                        "xmax": 0.1,
+                        "ymin": 0.45,
+                        "ymax": 0.8,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_time_vs_valve_opening",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "normalize_control_action",
+                    "value_variable": "time",
+                    "output_filename": "fig8_heatmap_time_vs_valve_opening.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Valve Opening",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Valve Opening (%)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 6,
+                        "ymin": -0.1,
+                        "ymax": 1.1,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 6,
+                        "num_yticks": 6,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": true,
+                    "name": "heatmap_time_vs_valve_opening(goal_reached)",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "normalize_control_action",
+                    "value_variable": "time",
+                    "output_filename": "fig9_heatmap_time_vs_valve_opening(goal_reached).png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Valve Opening (goal_reached)",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Valve Opening (%)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 6,
+                        "ymin": -0.1,
+                        "ymax": 1.1,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 6,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": [
+                            "goal_reached"
+                        ]
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": false,
+                    "name": "heatmap_time_vs_control_action",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "control_action",
+                    "value_variable": "time",
+                    "output_filename": "fig10_heatmap_time_vs_control_action.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Control action",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Control action (N)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 6,
+                        "ymin": -2,
+                        "ymax": 2,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 6,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": false,
+                    "name": "heatmap_time_vs_control_action(goal_reached)",
+                    "source": "detailed",
+                    "x_variable": "time",
+                    "y_variable": "control_action",
+                    "value_variable": "time",
+                    "output_filename": "fig11_heatmap_time_vs_control_action(goal_reached).png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Time vs Control Action (goal_reached)",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Time [s]",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Control Action (N)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0,
+                        "xmax": 6,
+                        "ymin": -2,
+                        "ymax": 2,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 6,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": [
+                            "goal_reached"
+                        ]
+                    }
+                },
+                {
+                    "type": "heatmap",
+                    "enabled": false,
+                    "name": "heatmap_Q_in_vs_Q_out",
+                    "source": "detailed",
+                    "x_variable": "Q_in",
+                    "y_variable": "Q_out",
+                    "value_variable": "Q_in",
+                    "output_filename": "fig12_Q_in_vs_Q_out.png",
+                    "config": {
+                        "aggregation": "count",
+                        "title": "Heatmap - Q in vs Q out",
+                        "title_fontsize": 18,
+                        "figsize_w": 14,
+                        "figsize_h": 10,
+                        "xlabel": "Q in (m)",
+                        "xlabel_fontsize": 16,
+                        "ylabel": "Q out (m/s)",
+                        "ylabel_fontsize": 16,
+                        "xmin": 0.005,
+                        "xmax": 0.025,
+                        "ymin": 0.005,
+                        "ymax": 0.0053,
+                        "tick_fontsize": 14,
+                        "xtick_rotation": 30,
+                        "num_xticks": 5,
+                        "num_yticks": 5,
+                        "clabel": "Frequency",
+                        "clabel_fontsize": 14,
+                        "cmin": null,
+                        "cmax": null,
+                        "cmap": "hot",
+                        "bins": 500,
+                        "log_scale": false,
+                        "grid_on": false,
+                        "filter_termination_reason": null
+                    }
+                }
+            ]
+        },
+        "logging_config": {
+            "log_to_file": false,
+            "filename": "log_simulation_run.log",
+            "levels": [
+                "DEBUG",
+                "INFO",
+                "WARNING",
+                "ERROR",
+                "CRITICAL"
+            ],
+            "log_save_frequency": 100
+        },
+        "data_handling_directives": {
+            "config": {
+                "enabled_json_history": true,
+                "enabled_summary": true,
+                "summary_first_cols": [
+                    "episode",
+                    "episode_wall_time_sec",
+                    "epsilon",
+                    "learning_rate",
+                    "gain_delta",
+                    "total_agent_decisions",
+                    "time_duration",
+                    "termination_reason",
+                    "total_reward",
+                    "performance",
+                    "avg_stability_score",
+                    "final_kp",
+                    "final_ki",
+                    "final_kd"
+                ],
+                "enabled_summary_stats": true,
+                "statistics_metrics": [
+                    "_mean",
+                    "sigma",
+                    "_min",
+                    "p25",
+                    "p50",
+                    "p75",
+                    "_max"
+                ]
+            },
+            "components": {
+                "env": [
+                    {
+                        "params": "episode_id",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history",
+                            "summary"
+                        ],
+                        "summary_stats": false,
+                        "alias": "episode"
+                    },
+                    {
+                        "params": "time",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": false
+                    },
+                    {
+                        "params": "time",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false,
+                        "alias": "time_duration"
+                    },
+                    {
+                        "params": "level",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "level_rate",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "Q_in",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "Q_out",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    }
+                ],
+                "controller": [
+                    {
+                        "params": "kp",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "ki",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "kd",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "kp",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false,
+                        "alias": "final_kp"
+                    },
+                    {
+                        "params": "ki",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false,
+                        "alias": "final_ki"
+                    },
+                    {
+                        "params": "kd",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false,
+                        "alias": "final_kd"
+                    },
+                    {
+                        "params": "control_action",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "limited_control_action",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "normalize_control_action",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "current_error",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "error"
+                    },
+                    {
+                        "params": "current_accumulated_integral_error",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "integral_error"
+                    },
+                    {
+                        "params": "current_derivative_error",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "derivative_error"
+                    },
+                    {
+                        "params": "last_proportional_term",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "p_term"
+                    },
+                    {
+                        "params": "last_integral_term",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "i_term"
+                    },
+                    {
+                        "params": "last_derivative_term",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true,
+                        "alias": "d_term"
+                    }
+                ],
+                "agent": [
+                    {
+                        "params": "action_kp",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": false
+                    },
+                    {
+                        "params": "action_ki",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": false
+                    },
+                    {
+                        "params": "action_kd",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": false
+                    },
+                    {
+                        "params": "interval_reward",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "learning_rate",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false
+                    },
+                    {
+                        "params": "epsilon",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ],
+                        "summary_stats": false
+                    }
+                ],
+                "stability": [
+                    {
+                        "params": "stability_score",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "avg_stability_score_interval",
+                        "freq": [
+                            "on_decision_interval"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    }
+                ],
+                "reward_calc": [
+                    {
+                        "params": "reward",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "reward_base_level",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "reward_dp_control_action",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "reward_di_tanh_level_rate",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "target_level_rate",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "fixed_penalty",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "reward_penalty_delta_control_action",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    },
+                    {
+                        "params": "goal_bonus",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ],
+                        "summary_stats": true
+                    }
+                ],
+                "sim_manager": [
+                    {
+                        "params": "id_agent_decision",
+                        "freq": [
+                            "on_step"
+                        ],
+                        "out": [
+                            "json_history"
+                        ]
+                    },
+                    {
+                        "params": "total_agent_decisions",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ]
+                    },
+                    {
+                        "params": "episode_wall_time_sec",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "summary"
+                        ]
+                    },
+                    {
+                        "params": "termination_reason",
+                        "freq": [
+                            "on_final"
+                        ],
+                        "out": [
+                            "json_history",
+                            "summary"
+                        ]
+                    }
+                ]
+            }
+        }
+    }
+}
