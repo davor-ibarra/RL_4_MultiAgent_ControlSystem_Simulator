@@ -11,6 +11,7 @@ La validación se realiza en dos bancos no lineales: WaterTank (1er orden) y Car
 
 ## 2. Alcance de esta sección del repositorio
 Esta sección funciona como respaldo curado de resultados del paper: contiene datos y resúmenes de las simulaciones para CartPole y WaterTank, junto a metadatos que registran la configuración completa de cada simulación.
+
 **Qué puede hacer el lector aquí:**
 - **Inspeccionar outputs resumidos** como tablas agregadas, figuras y estados de agente por hitos de entrenamiento.
 - **Verificar configuraciones** de simulación en los **metadatos** asociados a cada sistema dinámico.
@@ -75,6 +76,7 @@ python main.py
 
 ## 6. JSON de historial por lotes de episodios (bajo solicitud)
 **¿Qué es?** -> Historial completo de las simulaciones asignadas al archivo de configuración, tanto como del estado del sistema, variables de entrenamiento y métricas agregadas. (Ver **Ejemplo** para conocer la estructura esperada)
+
 **¿Por qué no está en el repo?** -> Los archivos `simulation_data_ep_<i>_to_<j>.json` no se suben por tamaño elevado; si requiere el historial asociado a la publicación, solicítelo por correo (ver punto 9) indicando sistema dinámico, rango de episodios y propósitos de uso.
 
 **Ejemplo**:
@@ -127,11 +129,16 @@ Ibarra-Pérez, D., García-Nieto, S., \& Sanchis Saez, J. (2025). _Q-Learning fo
 ## Licencia
 
 **Código del proyecto (carpeta `code_project/`)**
+
 Licencia ->`PolyForm-Noncommercial-1.0.0`.
+
 - Se permite **uso, modificación y redistribución no comercial** (docencia, investigación académica, evaluación).
 - **No esta permitido uso comercial** (p. ej., integración en productos/servicios, consultoría remunerada, SaaS), sin acuerdo **de licencia separada** con el autor.
+
 **Datos, figuras y artefactos derivados de artículos (carpeta `scientific_articles/`)**
+
 Licencia -> `CC-BY-NC-4.0`.
+
 - Requiere **atribución** a los autores y **prohíbe usos comerciales**; se permite compartir y adaptar bajo las mismas condiciones.
 
 ## 9. Nota de contacto
