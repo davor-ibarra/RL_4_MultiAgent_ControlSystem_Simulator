@@ -5,7 +5,7 @@
 **Journal:** *Mathematics | DOI pendiente*
 
 ## 1. Descripción del artículo
-Se propone un framework interpretable para sintonía en línea de PID mediante Q-Learning tabular multi-agente: tres agentes (para $K_p, K_i, K_d$​) actúan con baja observabilidad, viendo solo su ganancia discretizada y eligiendo en intervalos de decisión $\Delta T_{\mathrm{dec}}​ entre bajar/mantener/subir en pasos $\Delta k$. El aprendizaje es sin modelo y se guía por una recompensa global que combina: base gaussiana sobre variables de control, penalización temporal, penalización al cambio de control $P_u=(u_t-u_{t-1})^2$, bono por banda operativa y bono de objetivo al estabilizar, acumulada en cada intervalo antes de actualizar Q con Bellman TD.
+Se propone un framework interpretable para sintonía en línea de PID mediante Q-Learning tabular multi-agente: tres agentes (para $K_p, K_i, K_d$​) actúan con baja observabilidad, viendo solo su ganancia discretizada y eligiendo en intervalos de decisión $\Delta T_{\mathrm{dec}}$​ entre bajar/mantener/subir en pasos $\Delta k$. El aprendizaje es sin modelo y se guía por una recompensa global que combina: base gaussiana sobre variables de control, penalización temporal, penalización al cambio de control $P_u=(u_t-u_{t-1})^2$, bono por banda operativa y bono de objetivo al estabilizar, acumulada en cada intervalo antes de actualizar Q con Bellman TD.
 
 La validación se realiza en dos bancos no lineales: WaterTank (1er orden) y CartPole (2º orden). Los agentes convergen a combinaciones estabilizantes y muestran patrones coherentes con la dinámica: en WaterTank predominan $K_p$​ altos con $K_i, K_d$​ bajos; en CartPole, $K_p, K_i$​ altos y $K_d$ intermedio. La estructura de recompensas resulta decisiva para guiar conductas (p. ej., $P_u$​ evita sobre-ponderar $K_d$​; con solo error angular en CartPole se estabiliza el péndulo y se frena el carro gracias a componentes de velocidad/bandas/bonus). El enfoque es simple, trazable e interpretable, útil para comprender trayectorias de exploración y políticas aprendidas (tablas Q), y establece principios de diseño para esquemas híbridos PID-RL. Limitaciones: bancos idealizados, sensibilidad a hiperparámetros, y compromiso resolución-eficiencia por discretización y cadencia de decisión.
 
@@ -81,28 +81,28 @@ python main.py
 ```json
 [
   {
-    "episode": [0, 0, 0, . . .],
-    "time": [0.000, 0.001, 0.002, . . .],
-    "x": [0.0, 0.01, 0.02, . . .],
-    "x_dot": [0.0, 0.5, 0.4, . . .],
-    "theta": [0.05, 0.03, 0.01, . . .],
-    "theta_dot": [0.2, 0.15, 0.10, . . .],
-    "u": [0.0, 1.0, 1.0, . . .],
-    "reward": [0.0, 0.8, 0.9, . . .],
-    "termination_reason": ["time_excedded", "time_excedded", "time_excedded", . . .]
+    "episode": [0, 0, 0, ...],
+    "time": [0.000, 0.001, 0.002, ...],
+    "x": [0.0, 0.01, 0.02, ...],
+    "x_dot": [0.0, 0.5, 0.4, ...],
+    "theta": [0.05, 0.03, 0.01, ...],
+    "theta_dot": [0.2, 0.15, 0.10, ...],
+    "u": [0.0, 1.0, 1.0, ...],
+    "reward": [0.0, 0.8, 0.9, ...],
+    "termination_reason": ["time_excedded", "time_excedded", "time_excedded", ...]
   },
   {
-    "episode": [1, 1, 1, . . .],
-    "time": [0.00, 0.02, 0.04, . . .],
-    "x": [0.0, -0.01, -0.02, . . .],
-    "x_dot": [0.0, -0.6, -0.3, . . .],
-    "theta": [0.06, 0.04, 0.02, . . .],
-    "theta_dot": [0.25, 0.18, 0.12, . . .],
-    "u": [0.0, -1.0, -1.0, . . .],
-    "reward": [0.0, 0.7, 0.85, . . .],
-    "termination_reason": ["goal_reached", "goal_reached", "goal_reached", . . .]
+    "episode": [1, 1, 1, ...],
+    "time": [0.00, 0.02, 0.04, ...],
+    "x": [0.0, -0.01, -0.02, ...],
+    "x_dot": [0.0, -0.6, -0.3, ...],
+    "theta": [0.06, 0.04, 0.02, ...],
+    "theta_dot": [0.25, 0.18, 0.12, ...],
+    "u": [0.0, -1.0, -1.0, ...],
+    "reward": [0.0, 0.7, 0.85, ...],
+    "termination_reason": ["goal_reached", "goal_reached", "goal_reached", ...]
   },
-  . . .
+  ...
 ]
 ```
 
