@@ -1,23 +1,24 @@
 # Q-Learning for On-Line PID Controller Tuning in Continuous Dynamic Systems: An Interpretable Framework for Exploring Multi-Agent System
 
 **Autores:** Davor Ibarra-Pérez, Sergio García-Nieto and Javier Sanchis Saez.
+
 **Journal:** *Mathematics | DOI pendiente*
 
 ## 1. Descripción del artículo
-Se propone un framework interpretable para sintonía en línea de PID mediante Q-Learning tabular multi-agente: tres agentes (para Kp,Ki,KdK_p, K_i, K_dKp​,Ki​,Kd​) actúan con baja observabilidad, viendo solo su ganancia discretizada y eligiendo en intervalos de decisión ΔTdec\Delta T_{\mathrm{dec}}ΔTdec​ entre bajar/mantener/subir en pasos Δk\Delta kΔk. El aprendizaje es sin modelo y se guía por una recompensa global que combina: base gaussiana sobre variables de control, penalización temporal, penalización al cambio de control Pu=(ut−ut−1)2P_u=(u_t-u_{t-1})^2Pu​=(ut​−ut−1​)2, bono por banda operativa y bono de objetivo al estabilizar, acumulada en cada intervalo antes de actualizar Q con Bellman TD.
+Se propone un framework interpretable para sintonía en línea de PID mediante Q-Learning tabular multi-agente: tres agentes (para $K_p, K_i, K_d$​) actúan con baja observabilidad, viendo solo su ganancia discretizada y eligiendo en intervalos de decisión $\Delta T_{\mathrm{dec}}​ entre bajar/mantener/subir en pasos $\Delta k$. El aprendizaje es sin modelo y se guía por una recompensa global que combina: base gaussiana sobre variables de control, penalización temporal, penalización al cambio de control $P_u=(u_t-u_{t-1})^2$, bono por banda operativa y bono de objetivo al estabilizar, acumulada en cada intervalo antes de actualizar Q con Bellman TD.
 
-La validación se realiza en dos bancos no lineales: WaterTank (1er orden) y CartPole (2º orden). Los agentes convergen a combinaciones estabilizantes y muestran patrones coherentes con la dinámica: en WaterTank predominan KpK_pKp​ altos con Ki,KdK_i, K_dKi​,Kd​ bajos; en CartPole, Kp,KiK_p, K_iKp​,Ki​ altos y KdK_dKd​ intermedio. La estructura de recompensas resulta decisiva para guiar conductas (p. ej., PuP_uPu​ evita sobre-ponderar KdK_dKd​; con solo error angular en CartPole se estabiliza el péndulo y se frena el carro gracias a componentes de velocidad/bandas/bonus). El enfoque es simple, trazable e interpretable, útil para comprender trayectorias de exploración y políticas aprendidas (tablas Q), y establece principios de diseño para esquemas híbridos PID-RL. Limitaciones: bancos idealizados, sensibilidad a hiperparámetros, y compromiso resolución-eficiencia por discretización y cadencia de decisión.
+La validación se realiza en dos bancos no lineales: WaterTank (1er orden) y CartPole (2º orden). Los agentes convergen a combinaciones estabilizantes y muestran patrones coherentes con la dinámica: en WaterTank predominan $K_p$​ altos con $K_i, K_d$​ bajos; en CartPole, $K_p, K_i$​ altos y $K_d$ intermedio. La estructura de recompensas resulta decisiva para guiar conductas (p. ej., $P_u$​ evita sobre-ponderar $K_d$​; con solo error angular en CartPole se estabiliza el péndulo y se frena el carro gracias a componentes de velocidad/bandas/bonus). El enfoque es simple, trazable e interpretable, útil para comprender trayectorias de exploración y políticas aprendidas (tablas Q), y establece principios de diseño para esquemas híbridos PID-RL. Limitaciones: bancos idealizados, sensibilidad a hiperparámetros, y compromiso resolución-eficiencia por discretización y cadencia de decisión.
 
 ## 2. Alcance de esta sección del repositorio
 Esta sección funciona como respaldo curado de resultados del paper: contiene datos y resúmenes de las simulaciones para CartPole y WaterTank, junto a metadatos que registran la configuración completa de cada simulación.
 **Qué puede hacer el lector aquí:**
 - **Inspeccionar outputs resumidos** como tablas agregadas, figuras y estados de agente por hitos de entrenamiento.
 - **Verificar configuraciones** de simulación en los **metadatos** asociados a cada sistema dinámico.
-- **Solicitar JSON históricos de gran tamaño** si requiere análisis detallado de los datos históricos no incluidos en el repositorio (ver sección 6).
+- **Solicitar JSON históricos de gran tamaño** no incluidos en el repositorio (ver sección 6).
 
 ## 3. Contenidos
 ```
-README.md                          # Este archivo
+readme.md                          # Este archivo
 data/
   results_CartPole/
     20250817-0804/                 # Resumen de resultados + figuras de CartPole
