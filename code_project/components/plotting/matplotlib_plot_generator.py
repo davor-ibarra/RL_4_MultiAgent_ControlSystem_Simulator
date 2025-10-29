@@ -38,7 +38,8 @@ class MatplotlibPlotGenerator(PlotGenerator):
         plot_name = plot_config_data.get("name", f"plot_{plot_config_data.get('type', 'unknown')}_{plot_config_data.get('_internal_plot_index','?')}") # Para logging
 
         # 2. --- Títulos y Etiquetas ---
-        ax.set_title(cfg.get('title', plot_name), fontsize=cfg.get('title_fontsize', 14), pad=5)
+        if cfg.get('show_title', True):
+            ax.set_title(cfg.get('title', plot_name), fontsize=cfg.get('title_fontsize', 14), pad=cfg.get('title_pad', 5))
         # Obtener texto de etiqueta actual o usar variable de config como fallback
         current_xlabel_text = ax.get_xlabel()
         current_ylabel_text = ax.get_ylabel()
@@ -47,8 +48,8 @@ class MatplotlibPlotGenerator(PlotGenerator):
         # Formatear defaults si son strings no vacíos
         final_xlabel = cfg.get('xlabel', default_xlabel.replace('_', ' ').title() if isinstance(default_xlabel, str) and default_xlabel else default_xlabel)
         final_ylabel = cfg.get('ylabel', default_ylabel.replace('_', ' ').title() if isinstance(default_ylabel, str) and default_ylabel else default_ylabel)
-        ax.set_xlabel(final_xlabel, fontsize=cfg.get('xlabel_fontsize', 12), labelpad=5)
-        ax.set_ylabel(final_ylabel, fontsize=cfg.get('ylabel_fontsize', 12), labelpad=5)
+        ax.set_xlabel(final_xlabel, fontsize=cfg.get('xlabel_fontsize', 12), labelpad=cfg.get('xlabel_pad', 5))
+        ax.set_ylabel(final_ylabel, fontsize=cfg.get('ylabel_fontsize', 12), labelpad=cfg.get('ylabel_pad', 5))
 
         # 3. --- Límites de Ejes (Aplicar estrictamente desde config) ---
         # Estos se aplican DESPUÉS de que el plot se haya dibujado (incluyendo imshow con extent)
@@ -92,6 +93,12 @@ class MatplotlibPlotGenerator(PlotGenerator):
         ax.yaxis.set_major_formatter(ScalarFormatter(useMathText=False))
         ax.ticklabel_format(style='plain', axis='y', useOffset=False)
 
+        # Decimales de ticks
+        dec = cfg.get('tick_decimals')
+        if dec is not None:
+            ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, p: f"{x:.{dec}f}"))
+            ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, p: f"{y:.{dec}f}"))
+
         # Rotación de Etiquetas del Eje X
         xtick_rotation = cfg.get('xtick_rotation', 0)
         if xtick_rotation != 0:
@@ -112,10 +119,13 @@ class MatplotlibPlotGenerator(PlotGenerator):
         if show_legend_cfg and handles:
             legend_fs = cfg.get('legend_fontsize', 'small')
             legend_title = cfg.get('legend_title', None)
+            legend_transparency = cfg.get('legend_transparency', None)
             if legend_pos == 'outside':
-                ax.legend(handles, labels, title=legend_title, bbox_to_anchor=(1.04, 1), loc='upper left', fontsize=legend_fs, title_fontsize=legend_fs)
+                ax.legend(handles, labels, title=legend_title, bbox_to_anchor=(1.04, 1), loc='upper left', 
+                          fontsize=legend_fs, title_fontsize=legend_fs, framealpha=legend_transparency)
             else:
-                ax.legend(handles, labels, title=legend_title, loc=legend_pos, fontsize=legend_fs, title_fontsize=legend_fs)
+                ax.legend(handles, labels, title=legend_title, loc=legend_pos, 
+                          fontsize=legend_fs, title_fontsize=legend_fs, framealpha=legend_transparency)
         elif ax.get_legend() is not None:
              ax.get_legend().remove()
 
