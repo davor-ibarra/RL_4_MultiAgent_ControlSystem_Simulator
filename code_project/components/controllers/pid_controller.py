@@ -59,8 +59,8 @@ class PIDController(Controller):
         self.normalize_control_action: float = 0.0
         # Almacena la acción efectiva del paso anterior (informada por el Environment)
         self.last_effective_control_action: float = 0.0
-        # Almacena el error de saturación real del paso anterior (calculado en track_actuator_output)
-        self.last_saturation_error: float = 0.0
+        # Almacena el error de saturación de la acción de control real del paso anterior (calculado en track_actuator_output)
+        self.last_saturation_control_action: float = 0.0
 
         # Actuator
         self.actuator_min = float(self.actuator_limits[0])
@@ -145,7 +145,7 @@ class PIDController(Controller):
         is_in_windup_state = False
         # Para el método 'conditional', se evalúa si se debe acumular
         if self.aw_enabled and self.aw_method == 'conditional':
-            sat = self.last_saturation_error
+            sat = self.last_saturation_control_action
             is_in_windup_state = (sat > 0 and self.current_error > 0) or (sat < 0 and self.current_error < 0)
         
         # Acumular el error solo si no estamos en una condición de windup
@@ -154,7 +154,7 @@ class PIDController(Controller):
 
         # Para el método 'back_calculation', se aplica una corrección
         if self.aw_enabled and self.aw_method == 'back_calculation':
-            correction = (self.aw_beta * self.last_saturation_error) / max(abs(self.current_ki), 1e-6)
+            correction = (self.aw_beta * self.last_saturation_control_action) / max(abs(self.current_ki), 1e-6)
             self.current_accumulated_integral_error -= correction
         # Lógica para 'last_reference_calculation'
         elif self.aw_enabled and self.aw_method == 'last_reference_calculation' and self.current_ki != 0:
@@ -166,10 +166,13 @@ class PIDController(Controller):
     def track_actuator_output(self, effective_actuator_value: float):
         """
         El coordinador (Environment) informa al PID cuál fue su contribución final.
-        El PID usa esta información para calcular el error de saturación real y actualizar su estado.
+        El PID usa esta información para calcular el error de saturación real de la acción de control y actualizar su estado.
         """
+        current_saturation_control_action = self.raw_control_action - effective_actuator_value
+        # Proporción de saturación de control
+        self.diff_saturation_control_action = current_saturation_control_action - self.last_saturation_control_action
         # El error de saturación es la diferencia entre la acción ideal (raw) y la contribución efectiva.
-        self.last_saturation_error = self.raw_control_action - effective_actuator_value
+        self.last_saturation_control_action = current_saturation_control_action
         # Almacena la contribución efectiva para la lógica 'conditional' del siguiente ciclo.
         self.last_effective_control_action = effective_actuator_value
 
@@ -228,7 +231,8 @@ class PIDController(Controller):
         self.limited_control_action = 0.0
         self.normalize_control_action = 0.0
         self.last_effective_control_action = 0.0
-        self.last_saturation_error = 0.0
+        self.last_saturation_control_action = 0.0
+        self.diff_saturation_control_action = 0.0
         
     def reset_policy(self, reset_level_policy: str): # 'reset_level_policy' (Implementación de la interfaz)
         logger.debug(f"[PIDController:reset_policy] Received reset_policy request with level: '{reset_level_policy}'")
@@ -258,5 +262,6 @@ class PIDController(Controller):
             f'limited_action_{obj_name}': self.limited_control_action,
             f'normalized_action_{obj_name}': self.normalize_control_action,
             f'effective_action_{obj_name}': self.last_effective_control_action, # Contribución real
-            f'saturation_error_{obj_name}': self.last_saturation_error, # Error de saturación real
+            f'saturation_control_action_{obj_name}': self.last_saturation_control_action, # Error de saturación real
+            f'diff_saturation_control_action_{obj_name}': self.diff_saturation_control_action
         }

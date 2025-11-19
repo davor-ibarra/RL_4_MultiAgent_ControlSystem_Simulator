@@ -203,19 +203,19 @@ def _create_virtual_simulator_helper(c: Container) -> Optional[VirtualSimulator]
 def _load_and_register_component_from_config(factory_instance: Any, register_method_name: str, component_config: Dict, component_log_name: str):
         container_instance = Container()
         container_logger = container_instance._container_logger # Para logging interno del build
-        type_key = component_config.get('type')
+        module_name = component_config.get('module_name')
         module_path = component_config.get('module_path')
         class_name = component_config.get('class_name')
 
-        if not all([type_key, module_path, class_name]):
-            raise ValueError(f"DI Builder: Config for '{component_log_name}' is missing 'type', 'module_path', or 'class_name'.")
+        if not all([module_name, module_path, class_name]):
+            raise ValueError(f"DI Builder: Config for '{component_log_name}' is missing 'module_name', 'module_path', or 'class_name'.")
 
         try:
             module = importlib.import_module(module_path)
             component_class = getattr(module, class_name)
             register_method = getattr(factory_instance, register_method_name)
-            register_method(type_key, component_class)
-            container_logger.info(f"Dynamically loaded and registered {component_log_name} '{type_key}' from {module_path}.{class_name}")
+            register_method(module_name, component_class)
+            container_logger.info(f"Dynamically loaded and registered {component_log_name} '{module_name}' from {module_path}.{class_name}")
         except ImportError:
             container_logger.critical(f"DI Builder: Failed to import module '{module_path}' for {component_log_name}.")
             raise

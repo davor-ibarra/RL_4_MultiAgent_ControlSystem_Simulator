@@ -43,7 +43,8 @@ data_save:
       - {params: 'kd_pendulum_angle', freq: ['on_final'], out: ['summary'], alias: 'final_kd_pendulum_angle'}
       - {params: 'raw_action_pendulum_angle', freq: ['on_step'], out: ['json_history'], summary_stats: true}
       - {params: 'effective_action_pendulum_angle', freq: ['on_step'], out: ['json_history'], summary_stats: true}
-      - {params: 'saturation_error_pendulum_angle', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'saturation_control_action_pendulum_angle', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'diff_saturation_control_action_pendulum_angle', freq: ['on_step'], out: ['json_history'], summary_stats: true}
       - {params: 'error_pendulum_angle', freq: ['on_step'], out: ['json_history'], summary_stats: true}
       # --- Controlador de POSICIÓN ---
       - {params: 'kp_cart_position', freq: ['on_decision_interval'], out: ['json_history'], summary_stats: true}
@@ -54,7 +55,8 @@ data_save:
       - {params: 'kd_cart_position', freq: ['on_final'], out: ['summary'], alias: 'final_kd_cart_position'}
       - {params: 'raw_action_cart_position', freq: ['on_step'], out: ['json_history'], summary_stats: true}
       - {params: 'effective_action_cart_position', freq: ['on_step'], out: ['json_history'], summary_stats: true}
-      - {params: 'saturation_error_cart_position', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'saturation_control_action_cart_position', freq: ['on_step'], out: ['json_history'], summary_stats: true}
+      - {params: 'diff_saturation_control_action_cart_position', freq: ['on_step'], out: ['json_history'], summary_stats: true}
       - {params: 'error_cart_position', freq: ['on_step'], out: ['json_history'], summary_stats: true}
     agent:
       - {params: 'action_kp_pendulum_angle', freq: ['on_decision_interval'], out: ['json_history']}
