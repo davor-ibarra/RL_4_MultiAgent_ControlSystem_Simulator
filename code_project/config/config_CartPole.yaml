@@ -425,6 +425,13 @@ environment:
             L_u_total:   {enabled: true, source_feature: L_u,    agg: sum, role: smoothness}
             L_mov_total: {enabled: true, source_feature: L_mov,  agg: sum, role: inertia}
             L_sat_total: {enabled: true, source_feature: L_sat,  agg: sum, role: safety}
+          # --- shaping potencial sin sesgo ---
+          shaping_potential:
+            enabled: true
+            method: potential_difference          # usa Phi(s') - Phi(s)
+            gamma: 0.99
+            potential_signal_id: L_potential_total
+            base_objective_ids: [L_e_total, L_dot_total, L_I_total, L_u_total, L_sat_total]
           # --- Data Processing
           processing_metrics:
             enabled: true
@@ -451,13 +458,6 @@ environment:
               bandwidth: 1.0
               regime_source: regime_flag            # clave en la firma de intervalo (estado agregado)
               use_for: both                         # 'reward' | 'diagnostics' | 'both'
-          # --- shaping potencial sin sesgo ---
-          shaping_potential:
-            enabled: true
-            method: potential_difference          # usa Phi(s') - Phi(s)
-            gamma: 0.99
-            potential_signal_id: L_potential_total
-            base_objective_ids: [L_e_total, L_dot_total, L_I_total, L_u_total, L_sat_total]
       reward_high_observability:
         enabled: false
         reward_id: interval_reward_ho                 # ID escalar que verán los agentes en reward_assign
