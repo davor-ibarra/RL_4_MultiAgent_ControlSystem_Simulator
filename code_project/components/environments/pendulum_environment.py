@@ -31,7 +31,8 @@ class PendulumEnvironment(Environment):
         self.config = config
 
         self.env_cfg = self.config.get('environment', {})
-        self.sim_params_cfg = self.env_cfg.get('simulation', {})
+        self.env_runtime_cfg = self._select_environment_section(self.env_cfg)
+        self.sim_params_cfg = self.env_runtime_cfg.get('simulation', {})
         self.stabilization_criteria_cfg = self.sim_params_cfg.get('stabilization_criteria', {})
         
         dt_val = self.sim_params_cfg.get('dt_sec')
@@ -87,6 +88,23 @@ class PendulumEnvironment(Environment):
 
         logger.info(f"[PendulumEnvironment] Initialized with dt_sec={self._dt_val:.4f}, controller_reset_level='{self.controller_reset_policies}'.")
 
+    def _select_environment_section(self, env_root_cfg: Dict[str, Any]) -> Dict[str, Any]:
+        creator_mode = env_root_cfg.get('environment_creator', 'single')
+        if creator_mode == 'single':
+            return env_root_cfg.get('environment_single', env_root_cfg)
+        if creator_mode == 'multi_single':
+            multi_cfg = env_root_cfg.get('environment_multi_single', {})
+            for cfg in multi_cfg.values():
+                if isinstance(cfg, dict) and cfg.get('module_name'):
+                    return cfg
+        if creator_mode == 'multi_equal':
+            base_cfg = env_root_cfg.get('environment_multi_equal', {})
+            if isinstance(base_cfg, dict):
+                selected = base_cfg.get('environment_base')
+                if isinstance(selected, dict):
+                    return selected
+        return env_root_cfg
+    
     @property
     def dt(self) -> float:
         return self._dt_val

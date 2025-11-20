@@ -2,9 +2,7 @@
 import logging
 from typing import Dict, Any, Callable
 from interfaces.rl_agent import RLAgent
-from interfaces.reward_strategy import RewardStrategy # Para validación de tipo
-
-# No se importa PIDQLearningAgent aquí directamente.
+from interfaces.reward_strategy import RewardStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +21,7 @@ class AgentFactory:
         """
         Crea una instancia de RLAgent.
         agent_constructor_params es un diccionario que contiene todos los argumentos
-        nombrados que el constructor del agente espera (incluyendo 'reward_strategy').
+        nombrados que el constructor del agente espera).
         """
         logger.info(f"[AgentFactory:create_agent] Attempting agent type: '{agent_type}'")
         # logger.debug(f"[AgentFactory:create_agent] With constructor_params keys: {list(agent_constructor_params.keys())}")
@@ -33,5 +31,8 @@ class AgentFactory:
             error_msg = f"Unknown agent type specified: '{agent_type}'. Available types: {list(self._creators.keys())}"
             logger.critical(f"[AgentFactory:create_agent] {error_msg}")
             raise ValueError(error_msg)
-            
+        if 'reward_strategy' in agent_constructor_params:
+            strategy = agent_constructor_params['reward_strategy']
+            if strategy is not None and not isinstance(strategy, RewardStrategy):
+                raise TypeError("agent_constructor_params['reward_strategy'] must be a RewardStrategy or None")
         return creator(**agent_constructor_params)

@@ -1,23 +1,25 @@
 # factories/reward_factory.py
 import logging
-from typing import Dict, Any, Optional, Callable # Added Callable
+from typing import Dict, Any, Optional, Callable
 
 from interfaces.stability_calculator import BaseStabilityCalculator
 from interfaces.reward_function import RewardFunction
 from interfaces.reward_strategy import RewardStrategy
-# No se importan implementaciones concretas aquí directamente.
 
 logger = logging.getLogger(__name__)
 
-# --- Null Object Pattern para StabilityCalculator ---
 class NullStabilityCalculator(BaseStabilityCalculator):
-    """Una implementación nula de BaseStabilityCalculator."""
-    def __init__(self, params: Optional[Dict]=None): # Acepta params pero los ignora
+    """Implementación nula de BaseStabilityCalculator."""
+    def __init__(self, params: Optional[Dict]=None): # Acepta params pero se ignoran
         logger.info("[NullStabilityCalculator] Instance created. No stability calculations will be performed.")
-    def calculate_instantaneous_stability(self, state: Any) -> float: return 1.0 # Neutral stability
-    def calculate_stability_based_reward(self, state: Any) -> float: return 0.0 # Neutral reward
-    def update_calculator_stats(self, episode_metrics_dict: Dict, current_episode: int): pass
-    def get_current_adaptive_stats(self) -> Dict: return {}
+    def calculate_instantaneous_stability(self, state: Any) -> float: 
+        return 1.0 # Neutral stability
+    def calculate_stability_based_reward(self, state: Any) -> float: 
+        return 0.0 # Neutral reward
+    def update_calculator_stats(self, episode_metrics_dict: Dict, current_episode: int): 
+        return None
+    def get_current_adaptive_stats(self) -> Dict: 
+        return {}
 
 class RewardFactory:
     def __init__(self):
@@ -52,35 +54,22 @@ class RewardFactory:
         self._reward_strategy_creators[strategy_type_name] = creator_func
         logger.info(f"[RewardFactory:register_reward_strategy] RewardStrategy type '{strategy_type_name}' registered.")
     
-    def create_reward_function(self,
-                               config: Dict[str, Any], # Recibe el config completo
-                               stability_calculator_instance: BaseStabilityCalculator
-                               ) -> RewardFunction:
-
-        # logger.debug(f"[RewardFactory:create_reward_function] Received reward_function_config (calculation section) keys: {list(reward_function_config.keys())}") # Mantener este log
-
+    def create_reward_function(self, config: Dict[str, Any], stability_calculator_instance: BaseStabilityCalculator) -> RewardFunction:
         reward_setup_config = config.get('environment', {}).get('reward_setup', {})
         calculation_sub_config = reward_setup_config.get('calculation', {})
         rf_type = calculation_sub_config.get('reward_function_type', 'default_instantaneous_reward')
         creator_cls = self._reward_function_creators.get(rf_type)
-
         if not creator_cls:
             raise ValueError(f"Unknown RewardFunction type: '{rf_type}'")
-
         return creator_cls(config=config, stability_calculator=stability_calculator_instance)
     
     def create_reward_strategy(self, strategy_type_name: str, strategy_params: Dict[str, Any]) -> RewardStrategy:
-        """
-        Crea una instancia de RewardStrategy basada en el tipo y los parámetros proporcionados.
-        """
-        logger.debug(f"[RewardFactory:create_reward_strategy] Attempting type '{strategy_type_name}' with params: {list(strategy_params.keys())}")
-
+        """Crea una instancia de RewardStrategy basada en el tipo y los parámetros proporcionados."""
         strategy_creator_func = self._reward_strategy_creators.get(strategy_type_name)
         if not strategy_creator_func:
             error_msg = f"Unknown reward_strategy type: '{strategy_type_name}'. Available: {list(self._reward_strategy_creators.keys())}"
             logger.error(f"[RewardFactory] {error_msg}")
             raise ValueError(error_msg)
-
         # Obtener el bloque de parámetros específico para la estrategia elegida.
         try:
             # Desempaquetar los parámetros directamente en el constructor de la estrategia

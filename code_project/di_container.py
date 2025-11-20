@@ -1,7 +1,7 @@
 # di_container.py
 import threading
 import logging
-from typing import Any, Callable, Dict, Type, Optional, Union # Quitamos cast, List, Set, TYPE_CHECKING si no se usan directamente
+from typing import Any, Callable, Dict, Optional, Union
 import importlib
 
 # Interfaces (solo para type hints si son necesarias, pero los tokens pueden ser clases)
@@ -20,7 +20,7 @@ from interfaces.plot_generator import PlotGenerator
 from factories.system_factory import SystemFactory
 from factories.controller_factory import ControllerFactory
 from factories.agent_factory import AgentFactory
-from factories.reward_factory import RewardFactory, NullStabilityCalculator # Importar Null aquí si se registra aquí
+from factories.reward_factory import RewardFactory, NullStabilityCalculator
 from factories.environment_factory import EnvironmentFactory
 
 # Componentes Concretos (para registro en factorías y algunos helpers)
@@ -41,11 +41,17 @@ from components.reward_strategies.echo_baseline_reward_strategy import EchoBasel
 from components.simulators.virtual_simulator import DynamicVirtualSimulator
 
 
-# Esto es aceptable si son pocos y bien conocidos.
+# Esto es aceptable solo si son pocos y bien conocidos.
 VIS_CONFIG_TOKEN_STR = "visualization_config_dict_token"
 PROCESSED_DATA_DIRECTIVES_TOKEN_STR = "processed_data_directives_dict_token"
 OUTPUT_DIR_TOKEN_STR = "output_dir_path_token"
-SIMULATION_MANAGER_TOKEN_STR = "simulation_manager_service_token"
+CONTROLLERS_DICT_TOKEN_STR = "controllers_dict_token"
+SYSTEMS_DICT_TOKEN_STR = "systems_dict_token"
+AGENTS_DICT_TOKEN_STR = "agents_dict_token"
+ENVIRONMENTS_DICT_TOKEN_STR = "environments_dict_token"
+REWARD_FUNCTIONS_DICT_TOKEN_STR = "reward_functions_dict_token"
+REWARD_STRATEGIES_DICT_TOKEN_STR = "reward_strategies_dict_token"
+SIMULATION_MANAGER_TOKEN_STR = "simulation_manager.SimulationManager"
 # VISUALIZATION_MANAGER_TOKEN_STR = "visualization_manager_service_token" # Se usa la clase como token
 
 class Container:
@@ -54,7 +60,7 @@ class Container:
         self._singletons: Dict[Any, Any] = {}
         self._lock = threading.Lock()
         self._resolving_tracker: threading.local = threading.local()
-        self._container_logger = logging.getLogger(f'{__name__}.DIContainer[{id(self)}]')
+        self._container_logger = logging.getLogger(f"{__name__}.DIContainer[{id(self)}]")
         self._container_logger.info("DI Container instance created.")
 
     def register(self, token: Any, provider: Callable[['Container'], Any], singleton: bool = False):
@@ -67,11 +73,10 @@ class Container:
                 del self._singletons[token]
 
     def resolve(self, token: Any) -> Any:
-        # Manejo de Optional[Type] como token
         is_optional = False
         actual_token = token
-        if getattr(token, '__origin__', None) is Union:
-            args = getattr(token, '__args__', ())
+        if getattr(token, "__origin__", None) is Union:
+            args = getattr(token, "__args__", ())
             if len(args) == 2 and type(None) in args:
                 is_optional = True
                 actual_token = next(arg for arg in args if arg is not type(None))
@@ -102,58 +107,65 @@ class Container:
         instance = None
         try:
             instance = provider_func(self)
-        except Exception as e:
-            self._container_logger.error(f"Error executing provider for token {actual_token}: {e}", exc_info=True)
+        #except Exception as e:          # (BORRAR??)
+            #self._container_logger.error(f"Error executing provider for token {actual_token}: {e}", exc_info=True)
             # Limpiar tracker antes de re-lanzar
-            if hasattr(self._resolving_tracker, 'current_set') and actual_token in self._resolving_tracker.current_set:
-                self._resolving_tracker.current_set.remove(actual_token)
-                if not self._resolving_tracker.current_set: delattr(self._resolving_tracker, 'current_set')
-            raise
+            #if hasattr(self._resolving_tracker, 'current_set') and actual_token in self._resolving_tracker.current_set:
+            #    self._resolving_tracker.current_set.remove(actual_token)
+            #    if not self._resolving_tracker.current_set: delattr(self._resolving_tracker, 'current_set')
+            #raise
         finally:
             if hasattr(self._resolving_tracker, 'current_set'):
-                if actual_token in self._resolving_tracker.current_set: self._resolving_tracker.current_set.remove(actual_token)
-                if not self._resolving_tracker.current_set: delattr(self._resolving_tracker, 'current_set')
+                if actual_token in self._resolving_tracker.current_set: 
+                    self._resolving_tracker.current_set.remove(actual_token)
+                if not self._resolving_tracker.current_set: 
+                    delattr(self._resolving_tracker, 'current_set')
 
         if is_singleton:
-            with self._lock: self._singletons[actual_token] = instance
-        
+            with self._lock: 
+                self._singletons[actual_token] = instance
         # self._container_logger.debug(f"Resolved instance for token {actual_token}: {type(instance).__name__}")
         return instance
 
 # --- Helpers de Creación (para simplificar lambdas en build_container) ---
+def _import_class(module_path: str, class_name: str) -> type:
+    module = importlib.import_module(module_path)
+    return getattr(module, class_name)
+
+def _import_from_config(component_config: Dict[str, Any], component_name: str) -> tuple[str, type]:
+    if not isinstance(component_config, dict):
+        raise ValueError(f"DI Builder: Config for '{component_name}' must be a dict.")
+    module_name = component_config.get('module_name')
+    module_path = component_config.get('module_path')
+    class_name = component_config.get('class_name')
+    if not module_name or not module_path or not class_name:
+        raise ValueError(
+            f"DI Builder: Config for '{component_name}' is missing 'module_name', 'module_path', or 'class_name'."
+        )
+    component_class = _import_class(module_path, class_name)
+    return module_name, component_class
 
 def _create_stability_calculator_helper(c: Container) -> BaseStabilityCalculator:
     """Helper para crear BaseStabilityCalculator, inyectando la config necesaria."""
-    # RewardFactory ya no crea StabilityCalculator. StabilityCalculator se crea directamente.
     # Se resuelve la config y se decide qué tipo de StabilityCalculator crear.
     config = c.resolve(dict)
-
     stability_measure_cfg = config.get('environment', {}).get('reward_setup', {}).get('calculation', {}).get('stability_measure')
-    agent_state_cfg = config.get('environment', {}).get('agent', {}).get('params', {}).get('state_config', {})
-
     if not isinstance(stability_measure_cfg, dict) or not stability_measure_cfg:
         # logger.info("[DIHelper:_create_stability_calc] Stability measure config absent/invalid. Creating NullStabilityCalculator.")
-        return NullStabilityCalculator() # Crear NullStabilityCalculator con una config de agente dummy, ya que no la usará.
+        return NullStabilityCalculator() # Crear NullStabilityCalculator con una config de agente dummy, ya que no se usará.
 
     calc_type = stability_measure_cfg.get('type')
-    # Registrar tipos concretos directamente en DI o usar una mini-factoría aquí si crece mucho
     if calc_type == 'ira_zscore_metric':
-        params = stability_measure_cfg.get('ira_zscore_metric_params', {})
         return IRAStabilityCalculator(config=config)
-    elif calc_type == 'exp_decay_metric':
-        params = stability_measure_cfg.get('exp_decay_metric_params', {})
+    if calc_type == 'exp_decay_metric':
         return SimpleExponentialStabilityCalculator(config=config)
-    else:
-        # logger.warning(f"[DIHelper:_create_stability_calc] Unknown stability_measure type '{calc_type}'. Using NullStabilityCalculator.")
-        return NullStabilityCalculator(config)
+    return NullStabilityCalculator(config)
 
 def _create_reward_function_helper(c: Container) -> RewardFunction:
     """Helper para crear RewardFunction usando RewardFactory."""
-    logger_instance = c.resolve(logging.Logger)
     config = c.resolve(dict)
     reward_factory = c.resolve(RewardFactory)
     stability_calculator = c.resolve(BaseStabilityCalculator)
-    
     return reward_factory.create_reward_function(config, stability_calculator)
 
 def _create_reward_strategy_helper(c: Container) -> RewardStrategy:
@@ -169,59 +181,80 @@ def _create_reward_strategy_helper(c: Container) -> RewardStrategy:
     strategy_type = reward_strategy_cfg.get('type')
     strategy_params = reward_strategy_cfg.get('strategy_params', {}).get(strategy_type, {})
     strategy_params['agent_defining_vars'] = agent_instance_for_vars.get_agent_defining_vars()
-
     return reward_factory.create_reward_strategy(strategy_type, strategy_params)
 
 def _create_virtual_simulator_helper(c: Container) -> Optional[VirtualSimulator]:
     """Helper para crear VirtualSimulator si es necesario."""
     config = c.resolve(dict)
-    reward_strategy = c.resolve(RewardStrategy) # Resolver la estrategia para chequear 'needs_virtual_simulation'
-
+    reward_strategy = c.resolve(RewardStrategy)
     if not reward_strategy.needs_virtual_simulation:
-        # c.resolve(logging.Logger).info("[DIHelper:_create_virtual_sim] Strategy does not require VirtualSimulator. None created.")
         return None
-
-    # logger = c.resolve(logging.Logger)
-    # logger.info("[DIHelper:_create_virtual_sim] Creating VirtualSimulator...")
-    
     system_tpl = c.resolve(DynamicSystem)
     controller_tpl = c.resolve(Controller)
     reward_func_tpl = c.resolve(RewardFunction)
-    stability_calc_tpl = c.resolve(BaseStabilityCalculator) # <<< NECESARIO para el nuevo PendulumVirtualSimulator
+    stability_calc_tpl = c.resolve(BaseStabilityCalculator)
     dt_val = config.get('environment', {}).get('simulation', {}).get('dt_sec')
+    return DynamicVirtualSimulator(system_template=system_tpl,
+                                   controller_template=controller_tpl,
+                                   reward_function_template=reward_func_tpl,
+                                   stability_calculator_template=stability_calc_tpl,
+                                   dt_sec_value=dt_val)
 
-    # Asumimos que PendulumVirtualSimulator es el único tipo por ahora.
-    # Si hubiera más, se necesitaría una VirtualSimulatorFactory.
-    return DynamicVirtualSimulator(
-        system_template=system_tpl,
-        controller_template=controller_tpl,
-        reward_function_template=reward_func_tpl,
-        stability_calculator_template=stability_calc_tpl, # <<< PASARLO
-        dt_sec_value=dt_val
-    )
+def _extract_entries(component_config: Dict[str, Any],
+                     creator_key: str,
+                     single_key: str,
+                     multi_single_key: str,
+                     multi_equal_key: str,
+                     entry_prefix: str,
+                     ) -> list[tuple[str, Dict[str, Any]]]:
+    creator_mode = component_config.get(creator_key)
+    if creator_mode == 'single':
+        single_cfg = component_config.get(single_key, {})
+        return [(single_key, single_cfg)] if single_cfg else []
+    if creator_mode in {'multi_single', 'mix'}:
+        multi_cfg = component_config.get(multi_single_key, {})
+        return [
+            (key, cfg)
+            for key, cfg in multi_cfg.items()
+            if key.startswith(entry_prefix) and isinstance(cfg, dict)
+        ]
+    if creator_mode == 'multi_equal':
+        equal_cfg = component_config.get(multi_equal_key, {})
+        return [(multi_equal_key, equal_cfg)] if equal_cfg else []
+    return []
 
-def _load_and_register_component_from_config(factory_instance: Any, register_method_name: str, component_config: Dict, component_log_name: str):
-        container_instance = Container()
-        container_logger = container_instance._container_logger # Para logging interno del build
-        module_name = component_config.get('module_name')
-        module_path = component_config.get('module_path')
-        class_name = component_config.get('class_name')
+def _extract_controller_entries(controller_config: Dict[str, Any]) -> list[tuple[str, Dict[str, Any]]]:
+    return _extract_entries(controller_config,
+                            creator_key='controller_creator',
+                            single_key='controller_single',
+                            multi_single_key='controller_multi_single',
+                            multi_equal_key='controller_multi_equal',
+                            entry_prefix='controller',)
 
-        if not all([module_name, module_path, class_name]):
-            raise ValueError(f"DI Builder: Config for '{component_log_name}' is missing 'module_name', 'module_path', or 'class_name'.")
+def _extract_agent_entries(agent_config: Dict[str, Any]) -> list[tuple[str, Dict[str, Any]]]:
+    return _extract_entries(agent_config,
+                            creator_key='agent_creator',
+                            single_key='agent_single',
+                            multi_single_key='agent_multi_single',
+                            multi_equal_key='agent_multi_equal',
+                            entry_prefix='agent',)
 
-        try:
-            module = importlib.import_module(module_path)
-            component_class = getattr(module, class_name)
-            register_method = getattr(factory_instance, register_method_name)
-            register_method(module_name, component_class)
-            container_logger.info(f"Dynamically loaded and registered {component_log_name} '{module_name}' from {module_path}.{class_name}")
-        except ImportError:
-            container_logger.critical(f"DI Builder: Failed to import module '{module_path}' for {component_log_name}.")
-            raise
-        except AttributeError:
-            container_logger.critical(f"DI Builder: Failed to find class '{class_name}' in module '{module_path}' for {component_log_name}.")
-            raise
+def _extract_system_entries(environment_config: Dict[str, Any]) -> list[tuple[str, Dict[str, Any]]]:
+    dynamics_cfg = environment_config.get('dynamicsystem', {})
+    return _extract_entries(dynamics_cfg,
+                            creator_key='dynamicsystem_creator',
+                            single_key='dynamicsystem_single',
+                            multi_single_key='dynamicsystem_multi_single',
+                            multi_equal_key='dynamicsystem_multi_equal',
+                            entry_prefix='dynamicsystem',)
+
+def _extract_environment_entries(environment_config: Dict[str, Any]) -> list[tuple[str, Dict[str, Any]]]:
+    return _extract_entries(environment_config,
+                            creator_key='environment_creator',
+                            single_key='environment_single',
+                            multi_single_key='environment_multi_single',
+                            multi_equal_key='environment_multi_equal',
+                            entry_prefix='environment',)
 
 # --- Función Principal de Construcción del Contenedor ---
 def build_container(main_config: Dict[str, Any],
@@ -235,34 +268,63 @@ def build_container(main_config: Dict[str, Any],
 
     # 1. Registro Fundamental (singletons)
     container_instance.register(Container, lambda c_self: container_instance, singleton=True)
-    container_instance.register(logging.Logger, lambda c_log: logging.getLogger(), singleton=True) # Logger raíz o específico
+    container_instance.register(logging.Logger, lambda c_log: logging.getLogger(), singleton=True)
     container_instance.register(dict, lambda c_cfg: main_config, singleton=True) # Config principal
     container_instance.register(VIS_CONFIG_TOKEN_STR, lambda c_vis_cfg: vis_config, singleton=True)
-    container_instance.register(PROCESSED_DATA_DIRECTIVES_TOKEN_STR, lambda c_pdd_cfg: processed_data_directives if processed_data_directives else {}, singleton=True)
+    container_instance.register(PROCESSED_DATA_DIRECTIVES_TOKEN_STR, lambda c_pdd_cfg: processed_data_directives or {}, singleton=True)
     container_instance.register(OUTPUT_DIR_TOKEN_STR, lambda c_out_dir: output_dir, singleton=True)
 
     # 2. Factorías (singletons)
-    agent_f = AgentFactory()
-    container_instance.register(AgentFactory, lambda c: agent_f, singleton=True)
-    env_f = EnvironmentFactory()
-    container_instance.register(EnvironmentFactory, lambda c: env_f, singleton=True)
-    ctrl_f = ControllerFactory()
-    container_instance.register(ControllerFactory, lambda c: ctrl_f, singleton=True)
-    sys_f = SystemFactory()
-    container_instance.register(SystemFactory, lambda c: sys_f, singleton=True)
+    agent_factory = AgentFactory()
+    container_instance.register(AgentFactory, lambda c: agent_factory, singleton=True)
+    environment_factory = EnvironmentFactory()
+    container_instance.register(EnvironmentFactory, lambda c: environment_factory, singleton=True)
+    controller_factory = ControllerFactory()
+    container_instance.register(ControllerFactory, lambda c: controller_factory, singleton=True)
+    system_factory = SystemFactory()
+    container_instance.register(SystemFactory, lambda c: system_factory, singleton=True)
+    reward_factory = RewardFactory()
+    container_instance.register(RewardFactory, lambda c: reward_factory, singleton=True)
     
-    env_config_section = main_config.get('environment', {})
-    _load_and_register_component_from_config(sys_f, 'register_system_type', env_config_section.get('system', {}), 'System')
-    _load_and_register_component_from_config(agent_f, 'register_agent_type', env_config_section.get('agent', {}), 'Agent')
-    _load_and_register_component_from_config(env_f, 'register_environment_type', env_config_section, 'Environment')
+    # Registrar por tipo de componentes
+    env_config = main_config.get('environment', {})
 
-    reward_f = RewardFactory()
-    # Registros para RewardFactory (no dinámicos por ahora)
-    reward_f.register_reward_function_type('default_instantaneous_reward', InstantaneousRewardCalculator)
-    reward_f.register_reward_strategy_type('weighted_sum_features', GlobalRewardStrategy)
-    reward_f.register_reward_strategy_type('shadow_baseline_delta', ShadowBaselineRewardStrategy)
-    reward_f.register_reward_strategy_type('echo_virtual_baseline_delta', EchoBaselineRewardStrategy)
-    container_instance.register(RewardFactory, lambda c: reward_f, singleton=True)
+    system_entries = _extract_system_entries(env_config)
+    if not system_entries:
+        raise ValueError("DI Builder: No dynamicsystem entries found in configuration.")
+    for _, sys_cfg in system_entries:
+        sys_type_name, sys_cls = _import_from_config(sys_cfg, 'System')
+        system_factory.register_system_type(sys_type_name, sys_cls)
+    primary_system_name, primary_system_cfg = system_entries[0]
+    primary_system_type = _import_from_config(primary_system_cfg, 'System')[0]
+
+    agent_entries = _extract_agent_entries(env_config.get('agent', {}))
+    if not agent_entries:
+        raise ValueError("DI Builder: No agent entries found in configuration.")
+    for _, ag_cfg in agent_entries:
+        ag_type_name, ag_cls = _import_from_config(ag_cfg, 'Agent')
+        agent_factory.register_agent_type(ag_type_name, ag_cls)
+    primary_agent_name, primary_agent_cfg = agent_entries[0]
+    primary_agent_type = _import_from_config(primary_agent_cfg, 'Agent')[0]
+
+    environment_entries = _extract_environment_entries(env_config)
+    if not environment_entries:
+        raise ValueError("DI Builder: No environment entries found in configuration.")
+    for _, env_cfg in environment_entries:
+        env_type_name, env_cls = _import_from_config(env_cfg, 'Environment')
+        environment_factory.register_environment_type(env_type_name, env_cls)
+    primary_env_name, primary_env_cfg = environment_entries[0]
+    primary_env_type = _import_from_config(primary_env_cfg, 'Environment')[0]
+
+    controller_entries = _extract_controller_entries(env_config.get('controller', {}))
+    for ctrl_name, ctrl_cfg in controller_entries:
+        ctrl_type_name, ctrl_cls = _import_from_config(ctrl_cfg, f"Controller({ctrl_cfg.get('type', ctrl_name)})")
+        controller_factory.register_controller_type(ctrl_type_name, ctrl_cls)
+    
+    reward_factory.register_reward_function_type('default_instantaneous_reward', InstantaneousRewardCalculator)
+    reward_factory.register_reward_strategy_type('weighted_sum_features', GlobalRewardStrategy)
+    reward_factory.register_reward_strategy_type('shadow_baseline_delta', ShadowBaselineRewardStrategy)
+    reward_factory.register_reward_strategy_type('echo_virtual_baseline_delta', EchoBaselineRewardStrategy)
 
     # 3. Componentes Principales (singletons, usando helpers o factorías)
     container_instance.register(BaseStabilityCalculator, _create_stability_calculator_helper, singleton=True)
@@ -270,50 +332,59 @@ def build_container(main_config: Dict[str, Any],
     container_instance.register(RewardStrategy, _create_reward_strategy_helper, singleton=True)
     container_instance.register(Optional[VirtualSimulator], _create_virtual_simulator_helper, singleton=True)
 
-    container_instance.register(DynamicSystem, lambda c: c.resolve(SystemFactory).create_system(
-        system_type=c.resolve(dict).get('environment', {}).get('system', {}).get('type', 'unknown_system'), # Fallback
-        system_params=c.resolve(dict).get('environment', {}).get('system', {}).get('params', {})
-    ), singleton=True)
+    container_instance.register(REWARD_FUNCTIONS_DICT_TOKEN_STR,
+                                lambda c: {
+                                    primary_env_name: c.resolve(RewardFunction)
+                                    },
+                                singleton=True,)
 
-    # NUEVA LÓGICA DE REGISTRO PARA MÚLTIPLES CONTROLADORES CON CARGA DINÁMICA
-    controllers_dict_token = "controllers_dict_token"
-    container_instance.register(controllers_dict_token, lambda c: {
-        # La clave del diccionario será "controller_" + name_objective_var
-        f"controller_{ctrl_config.get('params', {}).get('name_objective_var')}": 
-        (
-            # Paso 1: Cargar y registrar dinámicamente la clase del controlador
-            _load_and_register_component_from_config(
-                c.resolve(ControllerFactory),
-                'register_controller_type',
-                ctrl_config,
-                f"Controller({ctrl_config.get('type')})"
-            ),
-            # Paso 2: Crear la instancia, pasando TODOS sus parámetros específicos
-            c.resolve(ControllerFactory).create_controller(
-                controller_type=ctrl_config.get('type'),
-                controller_params={
-                    # Desempaquetar los parámetros de la sección 'params'
-                    **ctrl_config.get('params', {}),
-                    # Añadir el 'dt_sec' global
-                    'dt_sec': c.resolve(dict).get('environment', {}).get('simulation', {}).get('dt_sec')
-                }
-            )
-        )[1] # Devolvemos solo la instancia creada en el paso 2
-        # Iterar sobre las secciones de controlador definidas en el YAML
-        for key, ctrl_config in c.resolve(dict).get('environment', {}).get('controller', {}).items()
-        if key.startswith('controller')
-    }, singleton=True)
+    container_instance.register(REWARD_STRATEGIES_DICT_TOKEN_STR,
+                                lambda c: {
+                                    primary_agent_name: c.resolve(RewardStrategy)
+                                    },
+                                singleton=True,)
 
-    container_instance.register(RLAgent, lambda c: c.resolve(AgentFactory).create_agent(
-        agent_type=c.resolve(dict).get('environment', {}).get('agent', {}).get('type', 'unknown_agent'),
-        agent_constructor_params={
-            **c.resolve(dict).get('environment', {}).get('agent', {}).get('params', {}),
-            'reward_strategy': None,
-            # Se pasa la configuración completa para que el agente pueda extraer los parámetros
-            # de los controladores que le conciernen.
-            'main_config': c.resolve(dict) 
-        }
-    ), singleton=True)
+    container_instance.register(SYSTEMS_DICT_TOKEN_STR,
+                                lambda c: {
+                                    name: c.resolve(SystemFactory).create_system(system_type=_import_from_config(cfg, 'System')[0],
+                                                                                 system_params=cfg.get('params', {}),)
+                                    for name, cfg in system_entries
+                                    },
+                                singleton=True,)
+
+    container_instance.register(DynamicSystem,
+                                lambda c: c.resolve(SystemFactory).create_system(system_type=primary_system_type,
+                                                                                 system_params=primary_system_cfg.get('params', {}),),
+                                singleton=True,)
+
+    container_instance.register(AGENTS_DICT_TOKEN_STR,
+                                lambda c: {
+                                    name: c.resolve(AgentFactory).create_agent(agent_type=_import_from_config(cfg, 'Agent')[0],
+                                                                               agent_constructor_params={**cfg.get('learning_params', {}),
+                                                                                                         **cfg.get('agent_config', {}),
+                                                                                                         'reward_strategy': None,
+                                                                                                         'main_config': c.resolve(dict),},)
+                                    for name, cfg in agent_entries
+                                    },
+                                singleton=True,)
+
+    container_instance.register(CONTROLLERS_DICT_TOKEN_STR,
+                                lambda c: {
+                                    f"controller_{ctrl_cfg.get('params', {}).get('name_objective_var')}": 
+                                    c.resolve(ControllerFactory).create_controller(controller_type=ctrl_cfg.get('module_name'),
+                                                                                   controller_params={**ctrl_cfg.get('params', {}), 
+                                                                                                      'dt_sec': env_config.get('simulation', {}).get('dt_sec')},)
+                                for ctrl_cfg in controller_entries if isinstance(ctrl_cfg, dict)
+                                },
+                                singleton=True,)
+
+    container_instance.register(RLAgent,
+                                lambda c: c.resolve(AgentFactory).create_agent(agent_type=primary_agent_type,
+                                                                               agent_constructor_params={**primary_agent_cfg.get('learning_params', {}),
+                                                                                                         **primary_agent_cfg.get('agent_config', {}),
+                                                                                                         'reward_strategy': None,
+                                                                                                         'main_config': c.resolve(dict),},),
+                                singleton=True,)
 
     # ENLACE DE DEPENDENCIAS CIRCULARES (Two-Phase Construction)
     # 1. Se resuelven las instancias que ya fueron construidas (pero no enlazadas).
@@ -324,40 +395,52 @@ def build_container(main_config: Dict[str, Any],
     if hasattr(agent_instance, 'set_reward_strategy'):
         agent_instance.set_reward_strategy(strategy_instance)
 
-    container_instance.register(Environment, lambda c: c.resolve(EnvironmentFactory).create_environment(
-        env_type=c.resolve(dict).get('environment', {}).get('type', 'unknown_environment'),
-        system=c.resolve(DynamicSystem),
-        controllers=c.resolve("controllers_dict_token"),
-        agent=c.resolve(RLAgent),
-        reward_function=c.resolve(RewardFunction),
-        stability_calculator=c.resolve(BaseStabilityCalculator), # <<< INYECTAR BaseStabilityCalculator
-        config=c.resolve(dict) # Config completa
-    ), singleton=True)
+    container_instance.register(Environment,
+                                lambda c: c.resolve(EnvironmentFactory).create_environment(env_type=primary_env_type,
+                                                                                           system=c.resolve(DynamicSystem),
+                                                                                           controllers=c.resolve(CONTROLLERS_DICT_TOKEN_STR),
+                                                                                           agent=c.resolve(RLAgent),
+                                                                                           reward_function=c.resolve(RewardFunction),
+                                                                                           stability_calculator=c.resolve(BaseStabilityCalculator),
+                                                                                           config=c.resolve(dict),),
+                                singleton=True,)
 
-    # 4. Servicios de Soporte (singletons)
+    container_instance.register(ENVIRONMENTS_DICT_TOKEN_STR,
+                                lambda c: {
+                                    name: c.resolve(EnvironmentFactory).create_environment(env_type=_import_from_config(cfg, 'Environment')[0],
+                                                                                           system=c.resolve(SYSTEMS_DICT_TOKEN_STR).get(primary_system_name),
+                                                                                           controllers=c.resolve(CONTROLLERS_DICT_TOKEN_STR),
+                                                                                           agent=c.resolve(AGENTS_DICT_TOKEN_STR).get(primary_agent_name),
+                                                                                           reward_function=c.resolve(RewardFunction),
+                                                                                           stability_calculator=c.resolve(BaseStabilityCalculator),
+                                                                                           config=c.resolve(dict),)
+                                    for name, cfg in environment_entries
+                                    },
+                                singleton=True,)
+
+    # 3. Servicios de Soporte (singletons)
     container_instance.register(ResultHandler, lambda c: ResultHandler(logger=c.resolve(logging.Logger)), singleton=True)
     container_instance.register(HeatmapGenerator, lambda c: HeatmapGenerator(injected_logger=c.resolve(logging.Logger)), singleton=True)
-    container_instance.register(PlotGenerator, lambda c: MatplotlibPlotGenerator(), singleton=True) # Asumiendo que no tiene deps complejas
+    container_instance.register(PlotGenerator, lambda c: MatplotlibPlotGenerator(), singleton=True)
 
-    # 5. Managers y Colectores (transitorios, creados por petición)
-    container_instance.register(MetricsCollector, lambda c: ExtendedMetricsCollector(
-        data_save_config=c.resolve(PROCESSED_DATA_DIRECTIVES_TOKEN_STR)
-    ), singleton=False) # Transient
+    # 4. Managers y Colectores (transitorios)
+    container_instance.register(MetricsCollector, 
+                                lambda c: ExtendedMetricsCollector(data_save_config=c.resolve(PROCESSED_DATA_DIRECTIVES_TOKEN_STR)), 
+                                singleton=False) # Transient
 
     # Usar tokens string para evitar importaciones circulares si SimulationManager/VisualizationManager están en otros módulos
-    container_instance.register("simulation_manager.SimulationManager", lambda c: SimulationManager(
-        logger=c.resolve(logging.Logger),
-        result_handler=c.resolve(ResultHandler),
-        container=c # Pasa el propio contenedor
-    ), singleton=False) # Transient
+    container_instance.register(SIMULATION_MANAGER_TOKEN_STR, 
+                                lambda c: SimulationManager(logger=c.resolve(logging.Logger),
+                                                            result_handler=c.resolve(ResultHandler),
+                                                            container=c), 
+                                singleton=False) # Transient
 
-    container_instance.register(VisualizationManager, lambda c: VisualizationManager( # Usar la clase directamente como token
-        logger_instance=c.resolve(logging.Logger),
-        plot_generator=c.resolve(PlotGenerator),
-        heatmap_generator=c.resolve(HeatmapGenerator),
-        vis_config_data=c.resolve(VIS_CONFIG_TOKEN_STR),
-        results_folder_path=c.resolve(OUTPUT_DIR_TOKEN_STR) # Resolver ruta de salida
-    ), singleton=False) # Transient
+    container_instance.register(VisualizationManager, 
+                                lambda c: VisualizationManager(logger_instance=c.resolve(logging.Logger),
+                                                               plot_generator=c.resolve(PlotGenerator),
+                                                               heatmap_generator=c.resolve(HeatmapGenerator),
+                                                               is_config_data=c.resolve(VIS_CONFIG_TOKEN_STR),
+                                                               results_folder_path=c.resolve(OUTPUT_DIR_TOKEN_STR)), singleton=False) # Transient
     
-    container_instance._container_logger.info("DI Container built and all providers registered.")
+    container_logger.info("DI Container built and all providers registered.")
     return container_instance

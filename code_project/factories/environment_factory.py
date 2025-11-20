@@ -19,18 +19,17 @@ class EnvironmentFactory:
         if env_type_name in self._creators:
             logger.warning(f"[EnvironmentFactory:register] Overwriting creator for environment type: {env_type_name}")
         self._creators[env_type_name] = creator_func
-        logger.info(f"[EnvironmentFactory:register] Environment type '{env_type_name}' registered with creator: {getattr(creator_func, '__name__', str(creator_func))}")
+        logger.info(f"[EnvironmentFactory:register] Environment type '{env_type_name}' registered with creator: "
+                    f"{getattr(creator_func, '__name__', str(creator_func))}")
 
     def create_environment(self,
                            env_type: str,
-                           # Estos son los argumentos que el constructor de PendulumEnvironment espera.
-                           # Son resueltos por el DI y pasados a esta factoría.
-                           system: Any, # DynamicSystem
-                           controllers: Dict[str, Controller], # Controller
-                           agent: Any, # RLAgent
-                           reward_function: Any, # RewardFunction
-                           stability_calculator: Any, # BaseStabilityCalculator (NUEVO)
-                           config: Dict[str, Any] # Config completa
+                           system: DynamicSystem,
+                           controllers: Dict[str, Controller],
+                           agent: RLAgent,
+                           reward_function: RewardFunction,
+                           stability_calculator: BaseStabilityCalculator,
+                           config: Dict[str, Any]
                            ) -> Environment:
         logger.info(f"[EnvironmentFactory:create_environment] Attempting environment type: '{env_type}'")
         
@@ -40,15 +39,9 @@ class EnvironmentFactory:
             logger.critical(f"[EnvironmentFactory:create_environment] {error_msg}")
             raise ValueError(error_msg)
 
-        # El constructor del entorno específico (e.g., PendulumEnvironment)
-        # es responsable de validar las instancias inyectadas y extraer
-        # sus propios parámetros de la 'config'.
-        # Pasar todas las dependencias y la config completa.
-        return creator(
-            system=system,
-            controllers=controllers,
-            agent=agent,
-            reward_function=reward_function,
-            stability_calculator=stability_calculator, # <<< PASAR EL STABILITY CALCULATOR AL CONSTRUCTOR
-            config=config
-        )
+        return creator(system=system,
+                       controllers=controllers,
+                       agent=agent,
+                       reward_function=reward_function,
+                       stability_calculator=stability_calculator,
+                       config=config)

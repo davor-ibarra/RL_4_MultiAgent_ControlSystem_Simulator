@@ -80,8 +80,8 @@ environment:
             method: 'conditional'              # 'perfect_back_calculation' | 'back_calculation' | 'conditional'
             back_calculation_params:
               betha: 0.5
-        # PID Adaptation Specifics
-        pid_adaptation:
+          # PID Adaptation Specifics
+          pid_adaptation:
           enabled: true              # Requiere REPARACIÓN IMPLEMENTACIÓN
           reset_policy_on_episode_end: full_params_and_state    # internal_state_only, full_params_and_state
       controller2:
@@ -103,8 +103,8 @@ environment:
             method: 'conditional'              # 'perfect_back_calculation' | 'back_calculation' | 'conditional'
             back_calculation_params:
               betha: 0.5
-        # PID Adaptation Specifics
-        pid_adaptation:
+          # PID Adaptation Specifics
+          pid_adaptation:
           enabled: true              # Requiere REPARACIÓN IMPLEMENTACIÓN
           reset_policy_on_episode_end: full_params_and_state    # internal_state_only, full_params_and_state
   # --- AGENTS ---
