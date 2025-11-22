@@ -82,8 +82,8 @@ environment:
               betha: 0.5
           # PID Adaptation Specifics
           pid_adaptation:
-          enabled: true              # Requiere REPARACIÓN IMPLEMENTACIÓN
-          reset_policy_on_episode_end: full_params_and_state    # internal_state_only, full_params_and_state
+            enabled: true              # Requiere REPARACIÓN IMPLEMENTACIÓN
+            reset_policy_on_episode_end: full_params_and_state    # internal_state_only, full_params_and_state
       controller2:
         module_name: pid_cart
         module_path: components.controllers.pid_controller_cart
@@ -105,8 +105,8 @@ environment:
               betha: 0.5
           # PID Adaptation Specifics
           pid_adaptation:
-          enabled: true              # Requiere REPARACIÓN IMPLEMENTACIÓN
-          reset_policy_on_episode_end: full_params_and_state    # internal_state_only, full_params_and_state
+            enabled: true              # Requiere REPARACIÓN IMPLEMENTACIÓN
+            reset_policy_on_episode_end: full_params_and_state    # internal_state_only, full_params_and_state
   # --- AGENTS ---
   agent:
     agent_creator: 'multi_equal'              # 'single' | 'multi_single' | 'multi_equal' | 'mix'
@@ -138,218 +138,57 @@ environment:
         learning_rate: 0.2                    # Initial learning rate for Q-updates
         learning_rate_mode: adaptive          # opciones: fixed | adaptive
         adaptive_params:
-          adaptive_params:
-            learning_rate_max: 0.5            # Maximum learning rate
-            learning_rate_min: 0.01           # Minimum learning rate
-            type: decay                       # 'decay' | 'incremental' | 'regarding_method'
-            decay_params:
-              order: episode                  # 'episode' | 'frecuency'
-              decay_factor: 0.999401          # Decay factor per order | 0.99885 (4000) | 0.999425 (8000) | 0.999693035777428 (15000) 
-            incremental_params:
-              order: episode                  # 'episode' | 'frecuency'
-              incremental_factor: 1.00279     # Incremental factor per order | 
-            regarding_method_params:
-              method: shedule                  # 'ucb' | 'shedule' | 'any name of method ...'
-              shedule_params:
-                layouts: []                   # ['decay']  | ['decay', 'incremental'] | ['fixed', 'decay', 'incremental']
-                type: one_by_one              # 'one_by_one' | 'intermittent' | 'periodic'
-                variable: episodes            # 'visits' | 'episodes'
-                threshold: [50]               # [50] | [50, 500]
-      # Agent State-Action-Reward Settings
+          learning_rate_max: 0.5            # Maximum learning rate
+          learning_rate_min: 0.01           # Minimum learning rate
+          type: decay                       # 'decay' | 'incremental' | 'regarding_method'
+          decay_params:
+            order: episode                  # 'episode' | 'frecuency'
+            decay_factor: 0.999401          # Decay factor per order | 0.99885 (4000) | 0.999425 (8000) | 0.999693035777428 (15000) 
+          incremental_params:
+            order: episode                  # 'episode' | 'frecuency'
+            incremental_factor: 1.00279     # Incremental factor per order | 
+          regarding_method_params:
+            method: shedule                  # 'ucb' | 'shedule' | 'any name of method ...'
+            shedule_params:
+              layouts: []                   # ['decay']  | ['decay', 'incremental'] | ['fixed', 'decay', 'incremental']
+              type: one_by_one              # 'one_by_one' | 'intermittent' | 'periodic'
+              variable: episodes            # 'visits' | 'episodes'
+              threshold: [50]               # [50] | [50, 500]
+      # Agent State-Action Settings
       agent_config:
-        type: discrete                                                                # discrete | continuous
-        discrete_mode: step                                                           # step | set | adaptive
-        multi_mode: equals_agents                                                     # equals_agents | per_agent
-        adaptive_params: {type: variable_mesh, strategy: density_zones}
-        activate_reward_MO: false
-        equals_agents_params:
+        type: discrete                    # discrete | continuous
+        discrete_mode: step               # step | set
+        agents_params:
           agents_id: [kp_pendulum_angle, ki_pendulum_angle, kd_pendulum_angle, kp_cart_position, ki_cart_position, kd_cart_position]
           state_params:
             state_step_params: 
               range: {min: 0.0, max: 5.0, bins: 26, state_vars: []}
               state_vars_params:
-                time: {min: 0.0, max: 5.0, bins: 4}
+                time: {min: 0.0, max: 3.0, bins: 4}
                 regime_flag: {categories: ["start", "transient", "damping"]}
-            state_adaptive_params:
-                variable_mesh_params:
-                  density_zones_params:
-                    high_density: {enabled: true, criteria: regime_flag, range: [0.0, 1.0], bins: 11}
-                    low_density: {enabled: true, criteria: regime_flag, range: [1.0, 1.0], bins: 6}
+            state_set_params:
+              states: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+              state_vars_params:
+                time: [0.0, 1.0, 2.0, 3.0]
           action_params:
-            action_step_params: 
-              num_actions: 3
+            action_step_params:
               id_actions: {decrease: 0, maintain: 1, increase: 2}
               gain_delta: 0.2
-            action_set_params: 
-              num_actions: 6
+            action_set_params:
               actions: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
-          reward_params:
-            reward_credit_strategy: total                                            # total | credit_assign
-            reward_type: interval_mse_reward                                         # interval_mean_reward | interval_mse_reward | interval_acum_reward
-            reward_compose: [reward_base, reward_bonus, reward_penalty]
-        per_agent_params:
-          kp_pendulum_angle:
-            enabled_agent: true
-            state_params:
-              state_step_params: 
-                range: {min: 0.0, max: 5.0, bins: 26, state_vars: []}
-                state_vars_params:
-                  time: {min: 0.0, max: 5.0, bins: 4}
-                  regime_flag: {categories: ["start", "transient", "damping"]}
-              state_adaptive_params:
-                variable_mesh_params:
-                  density_zones_params:
-                    high_density: {enabled: true, criteria: regime_flag, range: [0.0, 1.0], bins: 11}
-                    low_density: {enabled: true, criteria: regime_flag, range: [1.0, 1.0], bins: 6}
-            action_params:
-              action_step_params: 
-                num_actions: 3
-                id_actions: {decrease: 0, maintain: 1, increase: 2}
-                gain_delta: 0.2
-              action_set_params: 
-                num_actions: 6
-                actions: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
-            reward_params:
-              reward_credit_strategy: total                                            # total | credit_assign
-              reward_type: interval_mse_reward                                         # interval_mean_reward | interval_mse_reward | interval_acum_reward
-              reward_compose: [reward_base, reward_bonus, reward_penalty]
-              credit_assign_params:
-                weight: {L_e: 0.6, L_edot: 0.5, L_I: 0.2, L_u: 0.2, L_mov: 1.0, L_sat: 0.2}
-          ki_pendulum_angle:
-            enabled_agent: true
-            state_params:
-              state_step_params: 
-                range: {min: 0.0, max: 5.0, bins: 26, state_vars: []}
-                state_vars_params:
-                  time: {min: 0.0, max: 5.0, bins: 4}
-                  regime_flag: {categories: ["start", "transient", "damping"]}
-              state_adaptive_params:
-                variable_mesh_params:
-                  density_zones_params:
-                    high_density: {enabled: true, criteria: regime_flag, range: [0.0, 1.0], bins: 11}
-                    low_density: {enabled: true, criteria: regime_flag, range: [1.0, 1.0], bins: 6}
-            action_params:
-              action_step_params: 
-                num_actions: 3
-                id_actions: {decrease: 0, maintain: 1, increase: 2}
-                gain_delta: 0.2
-              action_set_params: 
-                num_actions: 6
-                actions: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
-            reward_params:
-              reward_credit_strategy: total                                            # total | credit_assign
-              reward_type: interval_mse_reward                                         # interval_mean_reward | interval_mse_reward | interval_acum_reward
-              reward_compose: [reward_base, reward_bonus, reward_penalty]
-              credit_assign_params:
-                weight: {L_e: 0.1, L_edot: 0.1, L_I: 0.7, L_u: 0.1, L_mov: 0.0, L_sat: 0.2}
-          kd_pendulum_angle:
-            enabled_agent: true
-            state_params:
-              state_step_params: 
-                range: {min: 0.0, max: 5.0, bins: 26, state_vars: []}
-                state_vars_params:
-                  time: {min: 0.0, max: 5.0, bins: 4}
-                  regime_flag: {categories: ["start", "transient", "damping"]}
-              state_adaptive_params:
-                variable_mesh_params:
-                  density_zones_params:
-                    high_density: {enabled: true, criteria: regime_flag, range: [0.0, 1.0], bins: 11}
-                    low_density: {enabled: true, criteria: regime_flag, range: [1.0, 1.0], bins: 6}
-            action_params:
-              action_step_params: 
-                num_actions: 3
-                id_actions: {decrease: 0, maintain: 1, increase: 2}
-                gain_delta: 0.2
-              action_set_params: 
-                num_actions: 6
-                actions: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
-            reward_params:
-              reward_credit_strategy: total                                            # total | credit_assign
-              reward_type: interval_mse_reward                                         # interval_mean_reward | interval_mse_reward | interval_acum_reward
-              reward_compose: [reward_base, reward_bonus, reward_penalty]
-              credit_assign_params:
-                weight: {L_e: 0.3, L_edot: 0.4, L_I: 0.1, L_u: 0.7, L_mov: 0.0, L_sat: 0.6}
-          kp_cart_position:
-            enabled_agent: true
-            state_params:
-              state_step_params: 
-                range: {min: 0.0, max: 5.0, bins: 26, state_vars: []}
-                state_vars_params:
-                  time: {min: 0.0, max: 5.0, bins: 4}
-                  regime_flag: {categories: ["start", "transient", "damping"]}
-              state_adaptive_params:
-                variable_mesh_params:
-                  density_zones_params:
-                    high_density: {enabled: true, criteria: regime_flag, range: [0.0, 1.0], bins: 11}
-                    low_density: {enabled: true, criteria: regime_flag, range: [1.0, 1.0], bins: 6}
-            action_params:
-              action_step_params: 
-                num_actions: 3
-                id_actions: {decrease: 0, maintain: 1, increase: 2}
-                gain_delta: 0.2
-              action_set_params: 
-                num_actions: 6
-                actions: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
-            reward_params:
-              reward_credit_strategy: total                                            # total | credit_assign
-              reward_type: interval_mse_reward                                         # interval_mean_reward | interval_mse_reward | interval_acum_reward
-              reward_compose: [reward_base, reward_bonus, reward_penalty]
-              credit_assign_params:
-                weight: {L_e: 0.6, L_edot: 0.5, L_I: 0.2, L_u: 0.2, L_mov: 1.0, L_sat: 0.2}
-          ki_cart_position:
-            enabled_agent: true
-            state_params:
-              state_step_params: 
-                range: {min: 0.0, max: 5.0, bins: 26, state_vars: []}
-                state_vars_params:
-                  time: {min: 0.0, max: 5.0, bins: 4}
-                  regime_flag: {categories: ["start", "transient", "damping"]}
-              state_adaptive_params:
-                variable_mesh_params:
-                  density_zones_params:
-                    high_density: {enabled: true, criteria: regime_flag, range: [0.0, 1.0], bins: 11}
-                    low_density: {enabled: true, criteria: regime_flag, range: [1.0, 1.0], bins: 6}
-            action_params:
-              action_step_params: 
-                num_actions: 3
-                id_actions: {decrease: 0, maintain: 1, increase: 2}
-                gain_delta: 0.2
-              action_set_params: 
-                num_actions: 6
-                actions: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
-            reward_params:
-              reward_credit_strategy: total                                            # total | credit_assign
-              reward_type: interval_mse_reward                                         # interval_mean_reward | interval_mse_reward | interval_acum_reward
-              reward_compose: [reward_base, reward_bonus, reward_penalty]
-              credit_assign_params:
-                weight: {L_e: 0.1, L_edot: 0.1, L_I: 0.7, L_u: 0.1, L_mov: 0.0, L_sat: 0.2}
-          kd_cart_position:
-            enabled_agent: true
-            state_params:
-              state_step_params: 
-                range: {min: 0.0, max: 5.0, bins: 26, state_vars: []}
-                state_vars_params:
-                  time: {min: 0.0, max: 5.0, bins: 4}
-                  regime_flag: {categories: ["start", "transient", "damping"]}
-              state_adaptive_params:
-                variable_mesh_params:
-                  density_zones_params:
-                    high_density: {enabled: true, criteria: regime_flag, range: [0.0, 1.0], bins: 11}
-                    low_density: {enabled: true, criteria: regime_flag, range: [1.0, 1.0], bins: 6}
-            action_params:
-              action_step_params: 
-                num_actions: 3
-                id_actions: {decrease: 0, maintain: 1, increase: 2}
-                gain_delta: 0.2
-              action_set_params: 
-                num_actions: 6
-                actions: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
-            reward_params:
-              reward_credit_strategy: total                                            # total | credit_assign
-              reward_type: interval_mse_reward                                         # interval_mean_reward | interval_mse_reward | interval_acum_reward
-              reward_compose: [reward_base, reward_bonus, reward_penalty]
-              credit_assign_params:
-                weight: {L_e: 0.3, L_edot: 0.4, L_I: 0.1, L_u: 0.7, L_mov: 0.0, L_sat: 0.6}
+          adaptive_discretization:
+            enabled: false
+            method: subagents_creator                         # subagents_creator | variable_mesh_params
+            adaptive_strategy: size_step                      # size_step | density_zones_params
+            feature_criteria: L_mov                           # error | L_mov | regime_flag | reward? | stability? | ...
+            subagents_creator_params:
+              size_step_params:
+                high_size_step: {range: [0.0, 1.0], bins: 11}
+                low_size_step: {range: [0.0, 5.0], bins: 6}
+            variable_mesh_params:
+              density_zones_params:
+                high_density: {range: [0.0, 1.0], bins: 11}
+                low_density: {range: [0.0, 5.0], bins: 6}
         # Habilidades extras de los agentes
         skills_config:
           # Patience Agent Settings
@@ -379,274 +218,274 @@ environment:
                 weight_factor: 0.0
   # --- REWARD CONFIGURATION ---
   reward_setup:
-    # --- 2. Agent Learning Strategy Configuration ---
+    # General Reward Configuration
+    reward_config:
+      reward_mode: global                                           # global | credit_assign
+      reward_compose: [reward_base, reward_bonus, reward_penalty]   # reward_base | reward_bonus | reward_penalty | reward_shaping | reward_multiobjective
+      reward_assign:
+        reward_base:
+          L_e_total:    {L_e: current_error}
+          L_edot_total: {L_edot: diff_current_error}
+          L_I_total:    {L_I: current_accumulated_integral_error}
+          L_u_total:    {L_u: diff_control_action}
+          L_mov_total:  {L_mov: gain_movement}
+          L_sat_total:  {L_sat: saturation_control_action}
+        reward_bonus: {}
+        reward_penalty: {}
+        reward_multiobjective:
+          fast: [L_e, L_I] 
+          smoothness: [L_edot, L_u, L_mov]
+          economic: []
+          safety: [L_sat]
+        reward_shaping:
+          shaping_potential:
+            enabled: false
+            method: potential_difference          # usa Phi(s') - Phi(s)
+            gamma: 0.99
+            potential_signal_id: L_shape_poten_total
+            base_objective_ids: [L_e_total, L_dot_total, L_I_total, L_u_total, L_sat_total]
+      credit_assign_params:
+        strategy:
+          manual_partition:
+            enabled: false
+            feature_partitions:
+              kp_pendulum_angle:  {L_e: 0.6, L_edot: 0.5, L_I: 0.2, L_u: 0.2, L_mov: 1.0, L_sat: 0.2}
+              ki_pendulum_angle:  {L_e: 0.1, L_edot: 0.1, L_I: 0.7, L_u: 0.1, L_mov: 0.0, L_sat: 0.2}
+              kd_pendulum_angle:  {L_e: 0.3, L_edot: 0.4, L_I: 0.1, L_u: 0.7, L_mov: 0.0, L_sat: 0.6}
+              kp_cart_position:   {L_e: 0.6, L_edot: 0.5, L_I: 0.2, L_u: 0.2, L_mov: 1.0, L_sat: 0.2}
+              ki_cart_position:   {L_e: 0.1, L_edot: 0.1, L_I: 0.7, L_u: 0.1, L_mov: 0.0, L_sat: 0.2}
+              kd_cart_position:   {L_e: 0.3, L_edot: 0.4, L_I: 0.1, L_u: 0.7, L_mov: 0.0, L_sat: 0.6}
+          orthogonalization:
+            enabled: false
+            method: gram_schmidt                  # 'gram_schmidt' | 'pca-w'
+            feature_ids: [L_e, L_edot, L_I, L_u, L_mov, L_sat]
+    # Agent Learning Strategy Configuration
     reward_strategy:
-      type: weighted_sum_features     # weighted_sum_features, shadow_baseline_delta, echo_virtual_baseline_delta
-      strategy_params:
-        weighted_sum_features: {}
-        echo_virtual_baseline_delta: {}
-        shadow_baseline_delta:         
+      base:
+        enabled: true
+        module_name: base_reward_strategy
+        module_path: components.reward_strategy.base_reward_strategy
+        class_name: BaseRewardStrategy
+        base_params: {}
+      echo_virtual_baseline_delta:
+        enabled: false
+        module_name: echo_baseline_reward_strategy
+        module_path: components.reward_strategy.echo_baseline_reward_strategy
+        class_name: EchoBaselineRewardStrategy
+        echo_virtual_baseline_delta_params: {}
+      shadow_baseline_delta:
+        enabled: false
+        module_name: shadow_baseline_reward_strategy
+        module_path: components.reward_strategy.shadow_baseline_reward_strategy
+        class_name: ShadowBaselineRewardStrategy
+        shadow_baseline_delta_params:
           beta: 0.2
           baseline_init_value: 0.0
     # Reward Calculation Configuration
     reward_calculation:
-      reward_type: interval_mse_reward                                       # interval_mean_reward | interval_mse_reward | interval_acum_reward
-      reward_compose: [reward_base, reward_bonus, reward_penalty]            # reward_base | reward_bonus | reward_penalty | reward_multiobjective
-      reward_assign:
-              reward_base: [L_e_total, L_dot_total, L_I_total, L_u_total, L_mov_total, L_sat_total]
-              reward_bonus: []
-              reward_penalty: []
       reward_low_observability:
         enabled: true
         module_name: lagrangian_reward
         module_path: components.rewards.lagrangian_reward_calculator
         class_name: LagrangianRewardCalculator
         method: weighted                              # weighted | weighted_exponential | stability_measure_based
-        base_interval_reward_id: interval_reward      # ID del reward escalar principal del intervalo
-        expose_objectives: true                       # expone cada L_*_total como objetivos separados
-        weighted_params:
-          temporal_scope: interval                      # 'instantaneous' | 'interval' | 'mixed'
-          features_base:
-            L_e:     {weight: 0.4, source_signal: current_error, agg: mean_sq, sigma_ref: 0.10}
-            L_edot:  {weight: 0.2, source_signal: diff_current_error, agg: mean_sq, sigma_ref: 0.01}
-            L_I:      {weight: 0.1, source_signal: current_accumulated_integral_error, agg: mean_sq, sigma_ref: 0.10}
-            L_u:      {weight: 0.1, source_signal: diff_control_action, agg: mean_sq, sigma_ref: 0.10}
-          features_additional:
-            L_mov:     {weight: 0.1, source_signal: gain_movement, agg: mean_sq, sigma_ref: 0.10}
-            L_sat:     {weight: 0.1, source_signal: saturation_control_action, agg: mean_sq, sigma_ref: 0.10}
-        interval_metrics:
+        reward_params:
+          reward_base:
+            features_base:                                              # agg: abs | mean | accum | ms | rms
+              L_e:      {weight: 0.3, agg: mean_sq, sigma_ref: 0.10}
+              L_edot:   {weight: 0.2, agg: mean_sq, sigma_ref: 0.01}
+              L_I:      {weight: 0.2, agg: mean_sq, sigma_ref: 0.5}
+              L_u:      {weight: 0.2, agg: mean_sq, sigma_ref: 0.50}
+            features_additional:
+              L_mov:    {weight: 0.05, agg: mean_sq}
+              L_sat:    {weight: 0.05, agg: mean_sq, sigma_ref: 0.10}
+            # --- Data Processing
+          reward_bonus: {}
+          reward_penalty: {}
+        metrics_processing:
           enabled: true
           window: agent_decision_interval           # 'agent_decision_interval' | 'fixed_steps' | 'episode'
-          # Mapeo explícito de features Lagrangianas -> métricas de intervalo usadas en reward_assign
-          metrics:
-            L_e_total:   {enabled: true, source_feature: L_e,    agg: sum, role: tracking}
-            L_dot_total: {enabled: true, source_feature: L_edot, agg: sum, role: tracking}
-            L_I_total:   {enabled: true, source_feature: L_I,    agg: sum, role: tracking}
-            L_u_total:   {enabled: true, source_feature: L_u,    agg: sum, role: smoothness}
-            L_mov_total: {enabled: true, source_feature: L_mov,  agg: sum, role: inertia}
-            L_sat_total: {enabled: true, source_feature: L_sat,  agg: sum, role: safety}
-          # --- shaping potencial sin sesgo ---
-          shaping_potential:
+          intensification:
             enabled: true
-            method: potential_difference          # usa Phi(s') - Phi(s)
-            gamma: 0.99
-            potential_signal_id: L_potential_total
-            base_objective_ids: [L_e_total, L_dot_total, L_I_total, L_u_total, L_sat_total]
-          # --- Data Processing
-          processing_metrics:
+            normalize_by_window_length: true        # divide por N_t
+          standardization:
             enabled: true
-            intensification:
-              enabled: true
-              normalize_by_window_length: true      # divide por N_t
-            standardization:
-              enabled: true
-              method: median_mad                    # 'none' | 'median_mad'
-              epsilon_std: 1.0e-6
-              history_horizon_intervals: 100
-            normalization:
-              enabled: true
-              quantile_low: 0.05
-              quantile_high: 0.95
-              epsilon_norm: 1.0e-6
-            orthogonalization:
-              enabled: false
-              method: gram_schmidt                  # 'gram_schmidt' | 'pca'
-              feature_ids: [L_e, L_edot, L_I, L_u, L_mov, L_sat]
-            regime_kernels:
-              enabled: false
-              kernel_type: rbf                      # 'rbf' | 'matern' | 'poly'
-              bandwidth: 1.0
-              regime_source: regime_flag            # clave en la firma de intervalo (estado agregado)
-              use_for: both                         # 'reward' | 'diagnostics' | 'both'
-      reward_high_observability:
-        enabled: false
-        reward_id: interval_reward_ho                 # ID escalar que verán los agentes en reward_assign
-        method: weighted_exponential    # weighted_exponential o stability_measure_based
-        weighted_exponential_params:
-          features_base:
-            pendulum_angle:     {weight: 0.1, scaled: 0.12}       # Solo agregar ", setpoint: x.x" para ajustar a valor no cero
-            pendulum_velocity:  {weight: 0.1, scaled: 0.4}
-            cart_position:      {weight: 0.6, scaled: 0.3, setpoint: -1.0}
-            cart_velocity:      {weight: 0.2, scaled: 0.8}
-            control_action:     {weight: 0.0, scaled: 0.7}
-          features_additional:
-            # Penalty and Bonus Base Configuration
-            penalty_approach:
-              penalty_instantaneous_reward:
-                enabled: false
-                method: lineal                # lineal | quadratic
-                type: fixed
-                penalty_lineal_params:
-                  time: 0.05                  # time_coeff = 2*R_acum/t_deseado^2
-                penalty_quadratic_params:
-                  time: 0.4                     # 0.79984 -> 10000 | 0.39992 -> 5000 | 0.079984 -> 1000
-              penalty_delta_var:
-                enabled: false
-                method: 'quadratic'             # 'lineal' | 'quadratic'
-                penalty_delta_var_quadratic_params:
-                  delta_control_action: {weight: 0.01}
-            bonus_approach:
-              goal_bonus_reward:
-                enabled: true
-                static_value: 10.0            # Sólo si type = static
-                type: "static"                  # "static" | "decay"
-                decay_type: "exponential"              # "exponential" | "linear" | "none"  (sólo si type=decay)
-                decay_time_constant: 2.0        # tau [s], sólo para decay exponencial o lineal
-                base_value: 10.0              # Valor máximo del bono de meta
-                min_value: 1.0               # Bono mínimo tras decaer
-              # --- Bono de aproximación (zona ampliada) ---
-              bandwidth_bonus:
-                enabled: true
-                per_step_band_bonus: 0.1           # Bono por cada dt dentro de la zona ampliada
-                max_total_band_bonus: 5.0        # Tope máximo acumulado por episodio (None: ilimitado)
-                ranges: {
-                      cart_position: [-1.15, -0.85],
-                      cart_velocity: [-0.2, 0.2],
-                      pendulum_angle: [-0.04, 0.04],        # Rango radianes (mayor que umbral de estabilización)
-                      pendulum_velocity: [-0.1, 0.1],     # Rango rad/s
-                      }
-            conditional_approach:
-              dynamic_penalty:
-                enabled: false
-                method: quadratic               # "lineal" | "quadratic"
-                dynamic_penalty_params:
-                  control_action: {weight: 0.2, condition: {type: 'exp', feature: 'pendulum_angle', scaled: 0.04, setpoint: 0.0}}
-                  cart_velocity: {weight: 0.2, condition: {type: 'exp', feature: 'cart_position', scaled: 0.2, setpoint: -1.0}}
-              dynamic_incentive:
-                enabled: true
-                method: adaptative                    # "lineal" | "adaptative"
-                dynamic_incentive_lineal_params:
-                  pendulum_velocity: {weight: 0.5, x: 'error', x_max: 0.25, y_max: 0.1}
-                dynamic_incentive_adapt_params:
-                  pendulum_angle: {
-                                      type: 'tanh', y_max: 0.18, strength: 9.0, x: 'cart_position', x_sp: -1.0,    # y_max -> corresponde al respectivo param
-                                      f_reward: {type: 'exp', weight: 0.6, scaled: 0.08}
-                                    }
-                  pendulum_velocity: {
-                                      type: 'tanh', y_max: 0.1, strength: 6.0, x: 'pendulum_angle', x_sp: 0.0,    # y_max -> corresponde al respectivo param
-                                      f_reward: {type: 'exp', weight: 0.1, scaled: 0.30}
-                                    }
-                  cart_velocity: {
-                                  type: 'tanh', y_max: 1.2, strength: 3.2, x: 'cart_position', x_sp: -1.0,    # y_max -> corresponde al respectivo param
-                                      f_reward: {type: 'exp', weight: 0.3, scaled: 0.4}
-                                }
-                  #cart_position: {
-                  #                type: 'tanh', y_max: 0.4, strength: 5.0, x: 'pendulum_angle', x_sp: 0.0,    # y_max -> corresponde al respectivo param
-                  #                    f_reward: {type: 'exp', weight: 0.2, scaled: 0.1, setpoint: 2.0}
-                  #              }
+            method: median_mad                      # 'none' | 'median_mad'
+            epsilon_std: 1.0e-6
+            history_horizon_intervals: 100
+          normalization:
+            enabled: true
+            quantile_low: 0.05
+            quantile_high: 0.95
+            epsilon_norm: 1.0e-6
+        reward_high_observability:
+          enabled: false
+          module_name: omni_reward
+          module_path: components.rewards.omni_reward_calculator
+          class_name: OmniRewardCalculator
+          reward_id: interval_reward_ho                 # ID escalar que verán los agentes en reward_assign
+          method: weighted_exponential                  # weighted_exponential o stability_measure_based
+          weighted_exponential_params:
+            features_base:
+              pendulum_angle:     {weight: 0.1, scaled: 0.12}       # Solo agregar ", setpoint: x.x" para ajustar a valor no cero
+              pendulum_velocity:  {weight: 0.1, scaled: 0.4}
+              cart_position:      {weight: 0.6, scaled: 0.3, setpoint: -1.0}
+              cart_velocity:      {weight: 0.2, scaled: 0.8}
+              control_action:     {weight: 0.0, scaled: 0.7}
+            features_additional:
+              # Penalty and Bonus Base Configuration
+              penalty_approach:
+                penalty_reward:
+                  enabled: false
+                  method: lineal                # lineal | quadratic
+                  type: fixed
+                  penalty_lineal_params:
+                    time: 0.05                  # time_coeff = 2*R_acum/t_deseado^2
+                  penalty_quadratic_params:
+                    time: 0.4                     # 0.79984 -> 10000 | 0.39992 -> 5000 | 0.079984 -> 1000
+                penalty_delta_var:
+                  enabled: false
+                  method: 'quadratic'             # 'lineal' | 'quadratic'
+                  penalty_delta_var_quadratic_params:
+                    delta_control_action: {weight: 0.01}
+              bonus_approach:
+                goal_bonus_reward:
+                  enabled: true
+                  static_value: 10.0            # Sólo si type = static
+                  type: "static"                  # "static" | "decay"
+                  decay_type: "exponential"              # "exponential" | "linear" | "none"  (sólo si type=decay)
+                  decay_time_constant: 2.0        # tau [s], sólo para decay exponencial o lineal
+                  base_value: 10.0              # Valor máximo del bono de meta
+                  min_value: 1.0               # Bono mínimo tras decaer
+                # --- Bono de aproximación (zona ampliada) ---
+                bandwidth_bonus:
+                  enabled: true
+                  per_step_band_bonus: 0.1           # Bono por cada dt dentro de la zona ampliada
+                  max_total_band_bonus: 5.0        # Tope máximo acumulado por episodio (None: ilimitado)
+                  ranges: {
+                        cart_position: [-1.15, -0.85],
+                        cart_velocity: [-0.2, 0.2],
+                        pendulum_angle: [-0.04, 0.04],        # Rango radianes (mayor que umbral de estabilización)
+                        pendulum_velocity: [-0.1, 0.1],     # Rango rad/s
+                        }
+              conditional_approach:
+                dynamic_penalty:
+                  enabled: false
+                  method: quadratic               # "lineal" | "quadratic"
+                  dynamic_penalty_params:
+                    control_action: {weight: 0.2, condition: {type: 'exp', feature: 'pendulum_angle', scaled: 0.04, setpoint: 0.0}}
+                    cart_velocity: {weight: 0.2, condition: {type: 'exp', feature: 'cart_position', scaled: 0.2, setpoint: -1.0}}
+                dynamic_incentive:
+                  enabled: true
+                  method: adaptative                    # "lineal" | "adaptative"
+                  dynamic_incentive_lineal_params:
+                    pendulum_velocity: {weight: 0.5, x: 'error', x_max: 0.25, y_max: 0.1}
+                  dynamic_incentive_adapt_params:
+                    pendulum_angle: {
+                                        type: 'tanh', y_max: 0.18, strength: 9.0, x: 'cart_position', x_sp: -1.0,    # y_max -> corresponde al respectivo param
+                                        f_reward: {type: 'exp', weight: 0.6, scaled: 0.08}
+                                      }
+                    pendulum_velocity: {
+                                        type: 'tanh', y_max: 0.1, strength: 6.0, x: 'pendulum_angle', x_sp: 0.0,    # y_max -> corresponde al respectivo param
+                                        f_reward: {type: 'exp', weight: 0.1, scaled: 0.30}
+                                      }
+                    cart_velocity: {
+                                    type: 'tanh', y_max: 1.2, strength: 3.2, x: 'cart_position', x_sp: -1.0,    # y_max -> corresponde al respectivo param
+                                        f_reward: {type: 'exp', weight: 0.3, scaled: 0.4}
+                                  }
+                    #cart_position: {
+                    #                type: 'tanh', y_max: 0.4, strength: 5.0, x: 'pendulum_angle', x_sp: 0.0,    # y_max -> corresponde al respectivo param
+                    #                    f_reward: {type: 'exp', weight: 0.2, scaled: 0.1, setpoint: 2.0}
+                    #              }
   metrics_setup:
-    metrics_low_observability:
-      enabled: true
-      system_measure:
-        system_energy: {enabled: true, features: []}
-        regime_label: {enabled: true, source: regime_detector}
-        # --- métricas de estacionariedad / coherencia de régimen ---
-        stationarity:
+    system_measure:
+      system_energy: {enabled: true, features: []}
+      regime_label:
+        regime_kernels:
+          enabled: false
+          kernel_type: rbf                      # 'rbf' | 'matern' | 'poly'
+          bandwidth: 1.0
+          regime_source: regime_flag
+      # --- métricas de estacionariedad / coherencia de régimen ---
+      stationarity:
+        enabled: true
+        regime_source: regime_flag            # etiqueta de régimen en la firma de intervalo
+        window_intervals: 50
+        state_distribution:
           enabled: true
-          regime_source: regime_flag            # etiqueta de régimen en la firma de intervalo
-          window_intervals: 50
-          state_distribution:
-            enabled: true
-            counts_id: regime_visit_counts
-            cross_entropy_id: H_regime_visits   # H( P_hat || P_ref )
-            reference_source: reference_regime_distribution  # fase o dataset de referencia
-          transition_distribution:
-            enabled: true
-            counts_id: regime_transition_counts
-            kl_divergence_id: Dkl_regime_transitions
-            epsilon_kl: 1.0e-8
-          detailed_balance:
-            enabled: false
-            tolerance_flow_diff: 1.0e-3         # |P(x)T(y|x)-P(y)T(x|y)|
-            max_pairs_tracked: 50
-        # --- coherencia política implícita (acciones por estado local) ---
-        policy_consistency:
+          counts_id: regime_visit_counts
+          cross_entropy_id: H_regime_visits   # H( P_hat || P_ref )
+          reference_source: reference_regime_distribution  # fase o dataset de referencia
+        transition_distribution:
           enabled: true
-          window_intervals: 50
-          action_space: [decrease, maintain, increase]
-          reference_policy_source: reference_policy_after_training
-          cross_entropy_id: H_policy_actions
-          kl_divergence_id: Dkl_policy_actions
-        # --- modelos latentes para firmas de intervalo (GP, filtros) ---
-        latent_models:
-          gp_monitor:
+          counts_id: regime_transition_counts
+          kl_divergence_id: Dkl_regime_transitions
+          epsilon_kl: 1.0e-8
+        detailed_balance:
+          enabled: false
+          tolerance_flow_diff: 1.0e-3         # |P(x)T(y|x)-P(y)T(x|y)|
+          max_pairs_tracked: 50
+      # --- coherencia política implícita (acciones por estado local) ---
+      policy_consistency:
+        enabled: true
+        window_intervals: 50
+        action_space: [decrease, maintain, increase]
+        reference_policy_source: reference_policy_after_training
+        cross_entropy_id: H_policy_actions
+        kl_divergence_id: Dkl_policy_actions
+      # --- modelos latentes para firmas de intervalo (GP, filtros) ---
+      latent_models:
+        gp_monitor:
+          enabled: false
+          mode: stationarity_test             # 'stationarity_test' | 'multiobjective_map'
+          input_features: [L_e_norm, L_edot_norm, L_u_norm, L_sat_norm, regime_flag, gain_bin]
+          var_objectives: [J_e, J_edot, J_u, J_sat]
+          kernel_type: rbf
+          z_score_limit: 2.0                 # |epsilon_k,t| > límite -> violación de régimen
+        filters:
+          kalman:
             enabled: false
-            mode: stationarity_test             # 'stationarity_test' | 'multiobjective_map'
-            input_features: [L_e_norm, L_edot_norm, L_u_norm, L_sat_norm, regime_flag, gain_bin]
-            objectives: [J_e, J_edot, J_u, J_sat]
-            kernel_type: rbf
-            z_score_limit: 2.0                 # |epsilon_k,t| > límite -> violación de régimen
-          filters:
-            kalman:
-              enabled: false
-              state_dim: 4
-              obs_dim: 2
-              mode: regime_tracking
-            particle:
-              enabled: false
-              num_particles: 128
-              resample_threshold: 0.5
-        # --- medidas de riesgo sobre los objetivos ---
-        risk_measures:
+            mode: regime_tracking
+            state_dim: 4
+            obs_dim: 2
+          particle:
+            enabled: false
+            num_particles: 128
+            resample_threshold: 0.5
+      # --- medidas de riesgo sobre los objetivos ---
+      risk_measures:
+        security_control:
           enabled: false
           type: cvar                            # 'mean' | 'var' | 'cvar'
           alpha: 0.95
           objective_ids: [L_e_total, L_u_total, L_sat_total]
-      traking_measure:
-        type: exp_decay_metric       # exp_decay_metric, ira_zscore_metric
-        # simple_exponential_params -> exp_decay_metric_params
-        exp_decay_metric_params:
-          features:
-              error_pendulum_angle:     {weight: 0.5, scaled: 0.1}
-              error_cart_position:  {weight: 0.5, scaled: 1.0}
-        # ira_instantaneous_params -> ira_zscore_metric_params
-        ira_zscore_metric_params: 
-          lambda_factor: 1.0
-          epsilon_zscore_denominator: 1.0e-6
-          adaptive_stats:
-            enabled: false                ## REVISAR, hay log.info pero no hay data en SUMMARY
-            min_episode: 3000
-            min_sigma: 1.0e-4
-          features:
-            error_pendulum_angle:     {weight: 0.5, scaled: 0.1}
-            error_cart_position:  {weight: 0.5, scaled: 1.0}
-    metrics_high_observability:
-      enabled: false
-      system_measure: []
-      reward_high_observability:
+    stability_measure:
+      # simple_exponential_params -> weighted_exponential_params
+      weighted_exponential_params:
+        enabled: true
+        features:
+          error_pendulum_angle: {weight: 0.5, scaled: 0.1}
+          error_cart_position:  {weight: 0.5, scaled: 1.0}
+          #pendulum_angle:    {weight: 0.3, scaled: 0.12}           # agregar "setpoint: x.x" si no es 0.0
+          #pendulum_velocity: {weight: 0.5, scaled: 0.4}
+          #cart_position:     {weight: 0.3, scaled: 0.3, setpoint: -1.0}
+          #cart_velocity:     {weight: 0.2, scaled: 0.8}
+      # ira_params -> ira_zscore_metric_params
+      ira_zscore_metric_params:
         enabled: false
-        reward_id: interval_reward_ho                                # ID escalar que verán los agentes en reward_assign
-        method: weighted_exponential                                 # weighted_exponential | stability_measure_based
-        weighted_exponential_params:
-          features:
-            pendulum_angle:    {weight: 0.1, scaled: 0.12}           # agregar "setpoint: x.x" si no es 0.0
-            pendulum_velocity: {weight: 0.1, scaled: 0.4}
-            cart_position:     {weight: 0.6, scaled: 0.3, setpoint: -1.0}
-            cart_velocity:     {weight: 0.2, scaled: 0.8}
-            control_action:    {weight: 0.0, scaled: 0.7}
-      stability_measure:
-        type: exp_decay_metric       # exp_decay_metric, ira_zscore_metric
-        # simple_exponential_params -> exp_decay_metric_params
-        exp_decay_metric_params:
-          features:
-              pendulum_angle:     {weight: 0.30, scaled: 0.1}
-              pendulum_velocity:  {weight: 0.15, scaled: 0.5}
-              cart_position:      {weight: 0.40, scaled: 0.25, setpoint: 0.0}
-              cart_velocity:      {weight: 0.15, scaled: 0.5}
-        # ira_instantaneous_params -> ira_zscore_metric_params
-        ira_zscore_metric_params: 
-          lambda_factor: 1.0
-          epsilon_zscore_denominator: 1.0e-6
-          adaptive_stats:
-            enabled: false                ## REVISAR, hay log.info pero no hay data en SUMMARY
-            min_episode: 3000
-            min_sigma: 1.0e-4
-          features:
-            pendulum_angle:         {weight: 0.1, mu: 0.0, sigma: 0.05 }
-            pendulum_velocity:      {weight: 0.1, mu: 0.0, sigma: 0.05 }
-            cart_position:          {weight: 0.1, mu: 0.0, sigma: 0.5 }
-            cart_velocity:          {weight: 0.1, mu: 0.0, sigma: 0. }
-# --- End of Reward Configuration ---
+        lambda_factor: 1.0
+        epsilon_zscore_denominator: 1.0e-6
+        adaptive_stats:
+          enabled: false                ## REVISAR, hay log.info pero no hay data en SUMMARY
+          min_episode: 3000
+          min_sigma: 1.0e-4
+        features:
+          error_pendulum_angle:     {weight: 0.5, scaled: 0.1}
+          error_cart_position:  {weight: 0.5, scaled: 1.0}
+          #pendulum_angle:     {weight: 0.30, scaled: 0.1}
+          #pendulum_velocity:  {weight: 0.15, scaled: 0.5}
+          #cart_position:      {weight: 0.40, scaled: 0.25, setpoint: 0.0}
+          #cart_velocity:      {weight: 0.15, scaled: 0.5}
 # ========================================
 # Data Handling Configuration
 # ========================================

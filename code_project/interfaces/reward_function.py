@@ -1,70 +1,63 @@
 # interfaces/reward_function.py
-from abc import ABC, abstractmethod
-from typing import Tuple, Any, Dict, Optional
 
-# 5.1: Interfaz sin cambios funcionales, docstrings mejorados.
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
+
+
 class RewardFunction(ABC):
-    """
-    Interface for reward calculation components.
-    Defines methods to calculate reward per step, and update stats.
+    """Interface for reward calculation components.
+
+    Implementations should provide a `calculate` method that returns a dictionary
+    of reward parameters (e.g., `'total_reward'`). An optional
+    `reward_components` dictionary can be supplied containing pre‑computed metric
+    values such as Lagrangian terms. This keeps the reward calculator agnostic to
+    the environment's internal state representation.
     """
 
     @abstractmethod
-    def calculate(self, 
-                  state_dict: Dict[str, Any], 
-                  action_a: Any, 
-                  next_state_dict: Dict[str, Any], 
-                  current_episode_time_sec: float,
-                  dt_sec: float,
-                  goal_reached_in_step: bool
-                  ) -> float:
-        """
-        Calculates the instantaneous reward value for the transition from 
-        `state_dict` to `next_state_dict` given `action_a`.
-
-        The method for calculating the reward value depends on the implementing class's
-        configuration and may include penalties or bonuses.
+    def calculate(
+        self,
+        state_dict: Dict[str, Any],
+        action_a: Any,
+        next_state_dict: Dict[str, Any],
+        current_episode_time_sec: float,
+        dt_sec: float,
+        goal_reached_in_step: bool,
+        reward_components: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Calculate the instantaneous reward.
 
         Args:
-            state_dict (Dict[str, Any]): State dictionary before the action.
-            action_a (Any): Action taken (e.g., force).
-            next_state_dict (Dict[str, Any]): Resulting state dictionary after action and dt.
-            current_episode_time_sec (float): Current simulation time within the episode.
-            dt_sec (float): The time duration of the current simulation step.
-            goal_reached_in_step (bool): Goal reached in step flag.
-
+            state_dict: State before the action.
+            action_a: Action taken.
+            next_state_dict: State after the action.
+            current_episode_time_sec: Current simulation time.
+            dt_sec: Duration of the step.
+            goal_reached_in_step: Whether the goal was reached.
+            reward_components: Optional pre‑computed metrics (e.g., Lagrangian
+                terms). Implementations may ignore this if they compute metrics
+                internally.
 
         Returns:
-            float: The calculated reward value.
-                   Values should be finite floats. Implementations should
-                   handle internal errors and return defaults (e.g., 0.0)
-                   instead of raising exceptions for calculation issues.
+            Dict[str, Any]: Reward parameters, typically containing a
+                `'total_reward'` entry.
         """
         pass
 
     @abstractmethod
     def update_calculator_stats(self, episode_metrics_dict: Dict, current_episode: int):
-        """
-        Updates internal statistics of components used by the reward function
-        (like an adaptive stability calculator, if the reward function *also* uses it for some reason,
-         though primary adaptive updates for stability score happen directly in BaseStabilityCalculator).
-        Implementations can leave this empty if no adaptive components are used directly by the reward logic.
+        """Update internal statistics based on episode metrics.
 
-        Args:
-            episode_metrics_dict (Dict): Dictionary with lists of metrics from the episode.
-            current_episode (int): The index of the completed episode.
+        Implementations can leave this empty if no adaptive components are used.
         """
         pass
 
     @abstractmethod
     def reset(self):
-        """Resets the reward calculators params to its absolute initial configuration."""
+        """Reset the reward calculator to its initial configuration."""
         pass
 
     @abstractmethod
     def get_params_log(self) -> Dict[str, Any]:
-        """
-        Returns a dictionary of reward parameters for logging purposes.
-        This method centralizes the exposure of loggable data.
-        """
+        """Return a dictionary of reward parameters for logging purposes."""
         pass

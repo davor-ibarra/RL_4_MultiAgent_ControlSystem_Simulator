@@ -32,10 +32,11 @@ from simulation_manager import SimulationManager # Para token de string
 from visualization_manager import VisualizationManager # Para token de string
 
 # Componentes específicos que se registran en las factorías
-from components.rewards.instantaneous_reward_calculator import InstantaneousRewardCalculator
+from components.rewards.omni_reward_calculator import OmniRewardCalculator
+from components.rewards.lagrangian_reward_calculator import LagrangianRewardCalculator
 from components.analysis.ira_stability_calculator import IRAStabilityCalculator
 from components.analysis.simple_exponential_stability_calculator import SimpleExponentialStabilityCalculator
-from components.reward_strategies.global_reward_strategy import GlobalRewardStrategy
+from components.reward_strategies.base_reward_strategy import BaseRewardStrategy
 from components.reward_strategies.shadow_baseline_reward_strategy import ShadowBaselineRewardStrategy
 from components.reward_strategies.echo_baseline_reward_strategy import EchoBaselineRewardStrategy
 from components.simulators.virtual_simulator import DynamicVirtualSimulator
@@ -107,13 +108,6 @@ class Container:
         instance = None
         try:
             instance = provider_func(self)
-        #except Exception as e:          # (BORRAR??)
-            #self._container_logger.error(f"Error executing provider for token {actual_token}: {e}", exc_info=True)
-            # Limpiar tracker antes de re-lanzar
-            #if hasattr(self._resolving_tracker, 'current_set') and actual_token in self._resolving_tracker.current_set:
-            #    self._resolving_tracker.current_set.remove(actual_token)
-            #    if not self._resolving_tracker.current_set: delattr(self._resolving_tracker, 'current_set')
-            #raise
         finally:
             if hasattr(self._resolving_tracker, 'current_set'):
                 if actual_token in self._resolving_tracker.current_set: 
@@ -139,26 +133,26 @@ def _import_from_config(component_config: Dict[str, Any], component_name: str) -
     module_path = component_config.get('module_path')
     class_name = component_config.get('class_name')
     if not module_name or not module_path or not class_name:
-        raise ValueError(
-            f"DI Builder: Config for '{component_name}' is missing 'module_name', 'module_path', or 'class_name'."
-        )
+        raise ValueError(f"DI Builder: Config for '{component_name}' is missing 'module_name', 'module_path', or 'class_name'.")
     component_class = _import_class(module_path, class_name)
     return module_name, component_class
 
-def _create_stability_calculator_helper(c: Container) -> BaseStabilityCalculator:
+def _create_stability_calculator_helper(c: Container) -> BaseStabilityCalculator:               # REQUIERE QUE SEA AGNÓSTICO
     """Helper para crear BaseStabilityCalculator, inyectando la config necesaria."""
     # Se resuelve la config y se decide qué tipo de StabilityCalculator crear.
     config = c.resolve(dict)
-    stability_measure_cfg = config.get('environment', {}).get('reward_setup', {}).get('calculation', {}).get('stability_measure')
-    if not isinstance(stability_measure_cfg, dict) or not stability_measure_cfg:
+    stability_cfg  = config.get('metrics_setup', {}).get('stability_measure', {})
+    if not isinstance(stability_cfg, dict) or not stability_cfg:
         # logger.info("[DIHelper:_create_stability_calc] Stability measure config absent/invalid. Creating NullStabilityCalculator.")
         return NullStabilityCalculator() # Crear NullStabilityCalculator con una config de agente dummy, ya que no se usará.
 
-    calc_type = stability_measure_cfg.get('type')
-    if calc_type == 'ira_zscore_metric':
-        return IRAStabilityCalculator(config=config)
-    if calc_type == 'exp_decay_metric':
+    calc_type = stability_cfg.get('type')
+    # Prioridad 1: Weighted Exponential (antes simple_exponential)
+    if stability_cfg.get('weighted_exponential_params', {}).get('enabled', False):
         return SimpleExponentialStabilityCalculator(config=config)
+    # Prioridad 2: IRA Z-Score
+    if stability_cfg.get('ira_zscore_metric_params', {}).get('enabled', False):
+        return IRAStabilityCalculator(config=config)
     return NullStabilityCalculator(config)
 
 def _create_reward_function_helper(c: Container) -> RewardFunction:
@@ -178,10 +172,21 @@ def _create_reward_strategy_helper(c: Container) -> RewardStrategy:
     if not isinstance(reward_strategy_cfg, dict):
         raise ValueError("DIHelper: Config 'environment.reward_setup.reward_strategy' missing or not a dict for RewardStrategy.")
 
-    strategy_type = reward_strategy_cfg.get('type')
-    strategy_params = reward_strategy_cfg.get('strategy_params', {}).get(strategy_type, {})
+    active_strategy_type = 'base' # Default
+    strategy_params = {}
+    
+    for key, cfg in reward_strategy_cfg.items():
+        if isinstance(cfg, dict) and cfg.get('enabled', False):
+            active_strategy_type = key
+            # Extraer parámetros específicos (ej. shadow_baseline_delta_params)
+            strategy_params = cfg.get(f'{key}_params', {})
+            break
+    
+    # Inyectar variables del agente y configuración global de recompensas
     strategy_params['agent_defining_vars'] = agent_instance_for_vars.get_agent_defining_vars()
-    return reward_factory.create_reward_strategy(strategy_type, strategy_params)
+    # Inyectar 'reward_config' completo para acceso a reward_assign, compose, etc.
+    strategy_params['global_reward_config'] = config.get('environment', {}).get('reward_setup', {}).get('reward_config', {})
+    return reward_factory.create_reward_strategy(active_strategy_type, strategy_params)
 
 def _create_virtual_simulator_helper(c: Container) -> Optional[VirtualSimulator]:
     """Helper para crear VirtualSimulator si es necesario."""
@@ -193,7 +198,7 @@ def _create_virtual_simulator_helper(c: Container) -> Optional[VirtualSimulator]
     controller_tpl = c.resolve(Controller)
     reward_func_tpl = c.resolve(RewardFunction)
     stability_calc_tpl = c.resolve(BaseStabilityCalculator)
-    dt_val = config.get('environment', {}).get('simulation', {}).get('dt_sec')
+    dt_val = config.get('environment', {}).get('environment_single', {}).get('simulation', {}).get('dt_sec')
     return DynamicVirtualSimulator(system_template=system_tpl,
                                    controller_template=controller_tpl,
                                    reward_function_template=reward_func_tpl,
@@ -321,8 +326,11 @@ def build_container(main_config: Dict[str, Any],
         ctrl_type_name, ctrl_cls = _import_from_config(ctrl_cfg, f"Controller({ctrl_cfg.get('type', ctrl_name)})")
         controller_factory.register_controller_type(ctrl_type_name, ctrl_cls)
     
-    reward_factory.register_reward_function_type('default_instantaneous_reward', InstantaneousRewardCalculator)
-    reward_factory.register_reward_strategy_type('weighted_sum_features', GlobalRewardStrategy)
+    reward_factory.register_reward_function_type('omni_reward', OmniRewardCalculator)
+    reward_factory.register_reward_function_type('lagrangian_reward', LagrangianRewardCalculator)
+    
+    reward_factory.register_reward_strategy_type('base', BaseRewardStrategy)
+    #reward_factory.register_reward_strategy_type('weighted_sum_features', BaseRewardStrategy)
     reward_factory.register_reward_strategy_type('shadow_baseline_delta', ShadowBaselineRewardStrategy)
     reward_factory.register_reward_strategy_type('echo_virtual_baseline_delta', EchoBaselineRewardStrategy)
 
@@ -371,10 +379,10 @@ def build_container(main_config: Dict[str, Any],
     container_instance.register(CONTROLLERS_DICT_TOKEN_STR,
                                 lambda c: {
                                     f"controller_{ctrl_cfg.get('params', {}).get('name_objective_var')}": 
-                                    c.resolve(ControllerFactory).create_controller(controller_type=ctrl_cfg.get('module_name'),
+                                    c.resolve(ControllerFactory).create_controller(controller_type=_import_from_config(ctrl_cfg, 'Controller')[0],
                                                                                    controller_params={**ctrl_cfg.get('params', {}), 
                                                                                                       'dt_sec': env_config.get('simulation', {}).get('dt_sec')},)
-                                for ctrl_cfg in controller_entries if isinstance(ctrl_cfg, dict)
+                                for _, ctrl_cfg in controller_entries if isinstance(ctrl_cfg, dict)
                                 },
                                 singleton=True,)
 

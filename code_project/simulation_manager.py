@@ -218,14 +218,21 @@ class SimulationManager:
                                          'avg_stability_score_interval': avg_stability_score_interval, 
                                          'differential_rewards': diff_rewards}
             else:
-                (interval_reward, avg_stability_score_interval, final_env_state_s_prime_raw,
+                (interval_reward_components, avg_stability_score_interval, final_env_state_s_prime_raw,
                  interval_done_flag, term_reason_from_interval) = \
                     self._run_standard_interval_steps(
                         id_agent_decision, current_sim_time_sec, current_interval_duration_actual, current_raw_state_s,
                         env, ctrls, agent, env.reward_function, metrics_collector, stability_calc, config
                     )
-                reward_info_for_learn = {'interval_reward': interval_reward, 
-                                         'avg_stability_score_interval': avg_stability_score_interval}
+                
+                # Extraer total_reward para compatibilidad con estrategias que esperan un float principal
+                total_interval_reward = interval_reward_components.get('total_reward', 0.0)
+                
+                reward_info_for_learn = {
+                    'interval_reward': total_interval_reward, 
+                    'reward_components': interval_reward_components,
+                    'avg_stability_score_interval': avg_stability_score_interval
+                }
 
             # 4. Aprendizaje del Agente
             next_state_dict = env._create_state_dict(final_env_state_s_prime_raw) if hasattr(env, '_create_state_dict') else {}
@@ -313,9 +320,10 @@ class SimulationManager:
                                      metrics_collector: MetricsCollector,
                                      stability_calc: BaseStabilityCalculator,
                                      config: Dict[str, Any]
-                                     ) -> Tuple[float, float, np.ndarray, bool, str]:
+                                     ) -> Tuple[float, Dict[str, float], float, np.ndarray, bool, str]:
         """Ejecuta los pasos de simulación para un intervalo estándar, delegando el logging."""
         accumulated_interval_reward = 0.0
+        accumulated_reward_components: Dict[str, float] = {}
         stability_scores_in_interval: List[float] = []
         is_interval_terminal = False
         termination_reason_interval = "unknown"
@@ -332,6 +340,11 @@ class SimulationManager:
             last_state_in_interval = next_state_vec
             accumulated_interval_reward += float(reward) if pd.notna(reward) else 0.0
             stability_scores_in_interval.append(float(stability_score) if pd.notna(stability_score) else 1.0)
+
+            # Accumulate components
+            step_components = reward_function.get_params_log()
+            for k, v in step_components.items():
+                accumulated_reward_components[k] = accumulated_reward_components.get(k, 0.0) + (float(v) if pd.notna(v) else 0.0)
 
             next_state_dict = env._create_state_dict(next_state_vec) if hasattr(env, '_create_state_dict') else {}            
             metrics_collector.log_on_step(context={
@@ -358,7 +371,7 @@ class SimulationManager:
                 break
 
         avg_stability = np.nanmean(stability_scores_in_interval) if stability_scores_in_interval else 1.0
-        return accumulated_interval_reward, float(avg_stability), last_state_in_interval, is_interval_terminal, termination_reason_interval
+        return accumulated_interval_reward, accumulated_reward_components, float(avg_stability), last_state_in_interval, is_interval_terminal, termination_reason_interval
 
     def _run_echo_baseline_interval_steps(self,
                                           id_agent_decision: int,
@@ -371,11 +384,13 @@ class SimulationManager:
                                           config: Dict[str, Any]
                                           ) -> Tuple[float, float, np.ndarray, bool, str, Dict[str, float]]:
         """Ejecuta un intervalo estándar y luego las simulaciones virtuales para Echo Baseline."""
-        (real_reward, real_avg_stability, final_real_state,
+        (real_reward_components, real_avg_stability, final_real_state,
          real_interval_done, real_term_reason) = self._run_standard_interval_steps(
             id_agent_decision, interval_start_sim_time, interval_duration_to_run, current_raw_state_at_interval_start,
             env, ctrls, agent, reward_function, metrics_collector, stability_calc, config
         )
+        
+        real_reward = real_reward_components.get('total_reward', 0.0)
 
         ### --- La lógica de Echo Baseline se complica con múltiples controladores. ---
         ### --- Se necesitaría una refactorización mayor aquí si se quiere usar Echo. ---
@@ -409,6 +424,8 @@ class SimulationManager:
         
         return real_reward, real_avg_stability, final_real_state, real_interval_done, real_term_reason, echo_differential_rewards
         '''
+        return real_reward, real_avg_stability, final_real_state, real_interval_done, real_term_reason, {}
+
     # --- SECCIÓN 5: Métodos Auxiliares ---
     def _apply_actions_to_controller(self,
                                      controllers_dict: Dict[str, Controller],

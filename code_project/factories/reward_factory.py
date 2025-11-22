@@ -6,6 +6,11 @@ from interfaces.stability_calculator import BaseStabilityCalculator
 from interfaces.reward_function import RewardFunction
 from interfaces.reward_strategy import RewardStrategy
 
+# Estrategias Base (Se registran para disponibilidad fallback)
+from components.reward_strategies.base_reward_strategy import BaseRewardStrategy
+from components.reward_strategies.shadow_baseline_reward_strategy import ShadowBaselineRewardStrategy
+from components.reward_strategies.echo_baseline_reward_strategy import EchoBaselineRewardStrategy
+
 logger = logging.getLogger(__name__)
 
 class NullStabilityCalculator(BaseStabilityCalculator):
@@ -48,25 +53,6 @@ class RewardFactory:
             return
         if not callable(creator_func):
             logger.error(f"[RewardFactory:register_reward_strategy] Creator for '{strategy_type_name}' not callable.")
-            return
-        if strategy_type_name in self._reward_strategy_creators:
-            logger.warning(f"[RewardFactory:register_reward_strategy] Overwriting creator for type: {strategy_type_name}")
-        self._reward_strategy_creators[strategy_type_name] = creator_func
-        logger.info(f"[RewardFactory:register_reward_strategy] RewardStrategy type '{strategy_type_name}' registered.")
-    
-    def create_reward_function(self, config: Dict[str, Any], stability_calculator_instance: BaseStabilityCalculator) -> RewardFunction:
-        reward_setup_config = config.get('environment', {}).get('reward_setup', {})
-        calculation_sub_config = reward_setup_config.get('calculation', {})
-        rf_type = calculation_sub_config.get('reward_function_type', 'default_instantaneous_reward')
-        creator_cls = self._reward_function_creators.get(rf_type)
-        if not creator_cls:
-            raise ValueError(f"Unknown RewardFunction type: '{rf_type}'")
-        return creator_cls(config=config, stability_calculator=stability_calculator_instance)
-    
-    def create_reward_strategy(self, strategy_type_name: str, strategy_params: Dict[str, Any]) -> RewardStrategy:
-        """Crea una instancia de RewardStrategy basada en el tipo y los parámetros proporcionados."""
-        strategy_creator_func = self._reward_strategy_creators.get(strategy_type_name)
-        if not strategy_creator_func:
             error_msg = f"Unknown reward_strategy type: '{strategy_type_name}'. Available: {list(self._reward_strategy_creators.keys())}"
             logger.error(f"[RewardFactory] {error_msg}")
             raise ValueError(error_msg)

@@ -9,7 +9,7 @@ from interfaces.stability_calculator import BaseStabilityCalculator
 
 logger = logging.getLogger(__name__)
 
-class InstantaneousRewardCalculator(RewardFunction):
+class OmniRewardCalculator(RewardFunction):
     """
     Calculates the instantaneous reward based on a declarative configuration.
     It is self-configuring from the global config and operates on a contextual
@@ -25,7 +25,7 @@ class InstantaneousRewardCalculator(RewardFunction):
         try:
             reward_setup = config['environment']['reward_setup']
         except KeyError as e:
-            raise KeyError(f"InstantaneousRewardCalculator: Missing required configuration path: {e}")
+            raise KeyError(f"OmniRewardCalculator: Missing required configuration path: {e}")
 
         self.stability_calc_instance = stability_calculator
         self.log_reward_params: Dict[str, float] = {}
@@ -50,7 +50,7 @@ class InstantaneousRewardCalculator(RewardFunction):
     def _init_penalties_and_bonuses(self, reward_setup: Dict):
         """Initializes fixed penalties and bonuses."""
         # --- Penalty Configuration ---
-        self.cfg_penalty = reward_setup.get('penalty_approach', {}).get('penalty_instantaneous_reward', {})
+        self.cfg_penalty = reward_setup.get('penalty_approach', {}).get('penalty_reward', {})
         self.penalty_enabled = self.cfg_penalty.get('enabled', False)
 
         # --- Delta Var Penalty Configuration ---
@@ -105,25 +105,6 @@ class InstantaneousRewardCalculator(RewardFunction):
         # 3. Penalización dinámica (esfuerzo condicional)
         reward_terms.append(self._calculate_dynamic_penalty(next_state_dict, action_a))
 
-        # 4. Penalización por tiempo fija
-        reward_terms.append(self._calculate_fixed_penalty(current_episode_time_sec, dt_sec))
-
-        # 5. Penalización por variación excesiva
-        reward_terms.append(self._calculate_delta_var_penalty(action_a))
-        
-        # Suma de todos los componentes de recompensa por paso
-        total_reward = float(np.nansum(reward_terms))
-
-        # 6. Bonos de evento (aditivos sobre el total)
-        total_reward += self._calculate_goal_bonus(current_episode_time_sec, goal_reached_in_step)
-        total_reward += self._calculate_bandwidth_bonus(next_state_dict)
-            
-        return total_reward
-
-    ### NUEVO: Métodos de cálculo desacoplados ###
-    
-    def _calculate_base_reward(self, next_state_dict: Dict, action_a: Any) -> float:
-        """Calculates the main reward based on the 'calculation' config section."""
         if self.reward_method == 'weighted_exponential':
             reward_terms_list = []
             features_cfg = self.cfg_base.get('weighted_exponential_params', {}).get('features', {})

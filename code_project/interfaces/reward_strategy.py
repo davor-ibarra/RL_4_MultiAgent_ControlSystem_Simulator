@@ -33,6 +33,7 @@ class RewardStrategy(ABC):
         # --- State Information ---
         current_agent_state_dict: Dict[str, Any], # Estado S (discretizado o continuo según el agente) en formato de diccionario
         current_state_indices: tuple,             # Índices discretos para S (para la tabla Q de 'gain') si aplica
+        next_agent_state_dict: Dict[str, Any],    # Estado S' (siguiente) en formato de diccionario
         # --- Action Information ---
         actions_taken_map: Dict[str, int],             # Acciones A tomadas para todas las gains/agentes en el intervalo
         action_idx_for_gain: int,                    # Acción (e.g., 0,1,2) para la 'gain'/agente específico que se está actualizando
@@ -65,6 +66,7 @@ class RewardStrategy(ABC):
             controllers_dict (Controller): Diccionario con las instancias de controladores.
             current_agent_state_dict (Dict[str, Any]): Estado S al inicio del intervalo.
             current_state_indices (tuple): Índices del estado S para la tabla de 'gain'.
+            next_agent_state_dict (Dict[str, Any]): Estado S' al final del intervalo.
             actions_dict (Dict[str, int]): Acciones tomadas para todas las gains.
             action_taken_idx (int): Acción específica tomada para 'gain'.
             interval_reward (float): Recompensa real del intervalo.

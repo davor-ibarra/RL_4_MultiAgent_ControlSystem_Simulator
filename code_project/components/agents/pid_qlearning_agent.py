@@ -554,11 +554,13 @@ class PIDQLearningAgent(RLAgent):
             # 1. Calcular R_learn usando la RewardStrategy
             r_learn = self.reward_strategy.compute_reward_for_learning(
                 gain_id=gain_name, agent_instance=self, controllers_dict=controllers,
-                current_agent_s_dict=current_agent_s_dict, current_s_indices=s_indices,
+                current_agent_state_dict=current_agent_s_dict, current_state_indices=s_indices,
+                next_agent_state_dict=next_agent_s_prime_dict,
                 actions_taken_map=taken_actions_map, action_idx_for_gain=action_idx,
                 real_interval_reward=real_reward_interval,
                 avg_interval_stability_score=avg_stability_interval,
-                differential_rewards_map=differential_rewards
+                differential_rewards_map=differential_rewards,
+                reward_components=reward_info.get('reward_components')
             )
 
             # Guardar r_learn para logging
@@ -754,4 +756,3 @@ class PIDQLearningAgent(RLAgent):
     
     def _get_last_td_errors(self) -> Dict[str, float]: 
         return self._last_td_errors.copy()
-    
