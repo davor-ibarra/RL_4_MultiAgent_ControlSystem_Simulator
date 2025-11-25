@@ -166,6 +166,7 @@ environment:
               state_vars_params:
                 time: {min: 0.0, max: 3.0, bins: 4}
                 regime_flag: {categories: ["start", "transient", "damping"]}
+                objective_focus: {var_objectives: [J_fast, J_smoothness, J_economic, J_safety]}
             state_set_params:
               states: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
               state_vars_params:
@@ -233,10 +234,12 @@ environment:
         reward_bonus: {}
         reward_penalty: {}
         reward_multiobjective:
-          fast: [L_e, L_I] 
-          smoothness: [L_edot, L_u, L_mov]
-          economic: []
-          safety: [L_sat]
+          method: pareto_satisficing                                      # weighted_sum | lexicographic | pareto_satisficing
+          objectives:
+            J_fast: {features: [L_e, L_edot, L_I]}
+            J_smoothness: {features: [L_u, L_mov]}
+            #J_economic: {features: [cost]}
+            J_safety: {features: [L_sat]}
         reward_shaping:
           shaping_potential:
             enabled: false
@@ -292,13 +295,13 @@ environment:
         reward_params:
           reward_base:
             features_base:                                              # agg: abs | mean | accum | ms | rms
-              L_e:      {weight: 0.3, agg: mean_sq, sigma_ref: 0.10}
-              L_edot:   {weight: 0.2, agg: mean_sq, sigma_ref: 0.01}
-              L_I:      {weight: 0.2, agg: mean_sq, sigma_ref: 0.5}
-              L_u:      {weight: 0.2, agg: mean_sq, sigma_ref: 0.50}
+              L_e:      {weight: 0.3, agg: ms, sigma_ref: 0.10}
+              L_edot:   {weight: 0.2, agg: ms, sigma_ref: 0.01}
+              L_I:      {weight: 0.2, agg: ms, sigma_ref: 0.5}
+              L_u:      {weight: 0.2, agg: ms, sigma_ref: 0.50}
             features_additional:
-              L_mov:    {weight: 0.05, agg: mean_sq}
-              L_sat:    {weight: 0.05, agg: mean_sq, sigma_ref: 0.10}
+              L_mov:    {weight: 0.05}
+              L_sat:    {weight: 0.05, agg: accum, sigma_ref: 0.10}
             # --- Data Processing
           reward_bonus: {}
           reward_penalty: {}
@@ -439,7 +442,7 @@ environment:
           enabled: false
           mode: stationarity_test             # 'stationarity_test' | 'multiobjective_map'
           input_features: [L_e_norm, L_edot_norm, L_u_norm, L_sat_norm, regime_flag, gain_bin]
-          var_objectives: [J_e, J_edot, J_u, J_sat]
+          var_objectives: [J_fast, J_smoothness, J_economic, J_safety]
           kernel_type: rbf
           z_score_limit: 2.0                 # |epsilon_k,t| > límite -> violación de régimen
         filters:

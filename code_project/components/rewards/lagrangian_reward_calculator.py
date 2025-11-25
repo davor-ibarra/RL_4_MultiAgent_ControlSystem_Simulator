@@ -79,10 +79,10 @@ class LagrangianRewardCalculator(RewardFunction):
             val = variables[name]
             weight = params.get('weight', 0.0)
             sigma_ref = params.get('sigma_ref', 1.0)
-            agg_type = params.get('agg', 'mean_sq')
+            agg_type = params.get('agg', 'sm')
 
             norm_val = val / sigma_ref if sigma_ref != 0 else val
-            if agg_type in ('mean_sq', 'sq'):
+            if agg_type in ('sm', 'sq'):
                 term_val = -weight * (norm_val ** 2)
             elif agg_type == 'abs':
                 term_val = -weight * abs(norm_val)

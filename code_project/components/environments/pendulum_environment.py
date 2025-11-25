@@ -201,8 +201,8 @@ class PendulumEnvironment(Environment):
             current_episode_time_sec=self.current_sim_time_sec,
             dt_sec=self._dt_val,
             goal_reached_in_step=goal,
-            reward_components=metrics,
-+        )
+            reward_components=metrics
+            )
         w_stab = self.stability_calculator.calculate_instantaneous_stability(s_next_dict)
 
         # 4) Advance state and time
