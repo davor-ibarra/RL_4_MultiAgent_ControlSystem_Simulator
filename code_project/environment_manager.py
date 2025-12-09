@@ -69,7 +69,6 @@ class EnvironmentManager:
                     "stab_info": ...,
                     "subenv_context": {
                         "done_flags": ...,
-                        "raw_metrics": ...,
                         ...
                     },
                     "metric_processing": ... (optional)
@@ -89,12 +88,9 @@ class EnvironmentManager:
                 # Check for metric processing at step level
                 processed_metrics = {}
                 if self.metric_processing:
-                     # Merge state and raw metrics for processing
-                     metrics_to_process = state_dict.copy()
-                     if 'raw_metrics' in subenv_context and isinstance(subenv_context['raw_metrics'], dict):
-                         metrics_to_process.update(subenv_context['raw_metrics'])
-                     
-                     processed_metrics = self.metric_processing.process_step_metrics(env_id, metrics_to_process)
+                    # Merge state and raw metrics for processing
+                    metrics_to_process = state_dict.copy()
+                    processed_metrics = self.metric_processing.process_step_metrics(env_id, metrics_to_process)
 
                 env_result = {
                     "state_dict": state_dict,

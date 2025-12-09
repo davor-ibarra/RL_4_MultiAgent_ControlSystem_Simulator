@@ -136,7 +136,7 @@ class PendulumEnvironment(Environment):
         """Compute Lagrangian terms used by the reward calculator.
 
         Returns a dictionary with keys matching the expected metric names, e.g.
-        ``L_e``, ``L_edot``, ``L_x``, ``L_xdot``, ``L_u``, ``L_udot``.
+        ``e``, ``edot``, ``x``, ``xdot``, ``u``, ``udot``.
         """
         # Error (e) based on pendulum angle deviation from zero
         error = next_state_dict.get('pendulum_angle', 0.0)
