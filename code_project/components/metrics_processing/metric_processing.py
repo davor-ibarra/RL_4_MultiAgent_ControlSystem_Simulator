@@ -36,7 +36,24 @@ class MetricProcessing:
 
         logger.info(f"[MetricProcessing] Initialized. Window: {self.window_mode}, StdMethod: {self.std_method}")
 
+    def process_step_metrics(self, env_id: str, current_metrics: Dict[str, float]) -> Dict[str, float]:
+        """
+        Processes metrics for a single step for a given env_id.
+        Updates history and calculates Z-scores/Norms on the fly if configured.
+        """
+        if not self.enabled or not current_metrics:
+            return {}
+            
+        # 1. Update History
+        self._update_history(env_id, current_metrics)
+        
+        # 2. Transform (Normalization / Standardization) based on current history
+        processed_metrics = self._transform_metrics(env_id, current_metrics)
+        
+        return processed_metrics
+
     def process_interval_metrics(self, 
+                                 env_id: str,
                                  raw_metrics_buffer: List[Dict[str, float]], 
                                  interval_duration: float) -> Dict[str, float]:
         """
@@ -48,15 +65,15 @@ class MetricProcessing:
         # 1. Aggregation (Mean, Sum, RMS, etc.)
         aggregated_metrics = self._aggregate_metrics(raw_metrics_buffer, interval_duration)
         
-        # 2. Derived Metrics (Energy, Smoothness, etc.) - Placeholder for now, can be extended
+        # 2. Derived Metrics (Energy, Smoothness, etc.) - Placeholder for now
         # derived_metrics = self._calculate_derived_metrics(aggregated_metrics)
         # aggregated_metrics.update(derived_metrics)
 
         # 3. Update History (for adaptive normalization/standardization)
-        self._update_history(aggregated_metrics)
+        self._update_history(env_id, aggregated_metrics)
 
         # 4. Transformation (Normalization / Standardization)
-        processed_metrics = self._transform_metrics(aggregated_metrics)
+        processed_metrics = self._transform_metrics(env_id, aggregated_metrics)
 
         return processed_metrics
 
@@ -92,19 +109,26 @@ class MetricProcessing:
 
         return aggregated
 
-    def _update_history(self, metrics: Dict[str, float]):
+    def _update_history(self, env_id: str, metrics: Dict[str, float]):
         """Updates the history buffers with new aggregated metrics."""
+        if env_id not in self.history_buffers:
+            self.history_buffers[env_id] = {}
+        
+        env_buffer = self.history_buffers[env_id]
+        
         for k, v in metrics.items():
-            if k not in self.history_buffers:
-                self.history_buffers[k] = deque(maxlen=self.history_horizon)
-            self.history_buffers[k].append(v)
+            if k not in env_buffer:
+                env_buffer[k] = deque(maxlen=self.history_horizon)
+            env_buffer[k].append(v)
 
-    def _transform_metrics(self, metrics: Dict[str, float]) -> Dict[str, float]:
+    def _transform_metrics(self, env_id: str, metrics: Dict[str, float]) -> Dict[str, float]:
         """Applies standardization and normalization to metrics."""
         transformed = metrics.copy()
         
+        env_buffer = self.history_buffers.get(env_id, {})
+        
         for k, v in metrics.items():
-            history = list(self.history_buffers.get(k, []))
+            history = list(env_buffer.get(k, []))
             if len(history) < 2:
                 continue
                 

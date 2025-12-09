@@ -22,16 +22,12 @@ class PendulumEnvironment(Environment):
         self,
         system: DynamicSystem,
         controllers: Dict[str, Controller],
-        agent: RLAgent,
-        reward_function: RewardFunction,
         stability_calculator: BaseStabilityCalculator,
         config: Dict[str, Any],
     ):
         logger.info("[PendulumEnvironment] Initializing...")
         self.system = system
         self.controllers = controllers
-        self.agent = agent
-        self.reward_function = reward_function
         self.stability_calculator = stability_calculator
         self.config = config
 
@@ -163,17 +159,17 @@ class PendulumEnvironment(Environment):
         self.prev_action = effort
 
         return {
-            'L_e': error,
-            'L_edot': error_dot,
-            'L_x': next_state_dict.get('cart_position', 0.0),
-            'L_xdot': next_state_dict.get('cart_velocity', 0.0),
-            'L_u': effort,
-            'L_udot': effort_dot,
+            'e': error,
+            'edot': error_dot,
+            'x': next_state_dict.get('cart_position', 0.0),
+            'xdot': next_state_dict.get('cart_velocity', 0.0),
+            'u': effort,
+            'udot': effort_dot,
             'gain_inertia': gain_inertia,
             'saturation': saturated,
         }
 
-    def step(self) -> Tuple[np.ndarray, float, float, float]:
+    def step(self) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         """Execute one simulation step.
 
         Returns the next state, total reward, stability score, and applied action.
@@ -192,24 +188,32 @@ class PendulumEnvironment(Environment):
 
         # 3) Compute metrics and reward
         s_next_dict = self._create_state_dict(s_next)
-        goal = self._evaluate_if_state_is_goal(s_next_dict)
+
+        # 3.1) Compute metrics (Lagrangian, validity, etc)
         metrics = self._compute_lagrangian_metrics(s_dict, s_next_dict, float(u))
-        r = self.reward_function.calculate(
-            state_dict=s_dict,
-            action_a=u,
-            next_state_dict=s_next_dict,
-            current_episode_time_sec=self.current_sim_time_sec,
-            dt_sec=self._dt_val,
-            goal_reached_in_step=goal,
-            reward_components=metrics
-            )
-        w_stab = self.stability_calculator.calculate_instantaneous_stability(s_next_dict)
+        
+        # Check termination conditions locally
+        limit_exceeded, goal_reached = self._check_termination_conditions(s_next_dict)
+        
+        # Stability
+        w_stab_val = self.stability_calculator.calculate_instantaneous_stability(s_next_dict)
+        stab_info = {'stability_score': w_stab_val}
 
         # 4) Advance state and time
         self.current_episode_state = s_next
         self.current_sim_time_sec += self._dt_val
 
-        return self.current_episode_state, r, w_stab, u
+        # Context
+        subenv_context = {
+            'action_applied': float(u),
+            'raw_metrics': metrics,
+            'done_flags': {
+                'limit_exceeded': limit_exceeded,
+                'goal_reached': goal_reached,
+            }
+        }
+
+        return s_next_dict, stab_info, subenv_context
 
     def _compute_control_action_by_policy(self, state_s_dict: Dict[str, float]) -> float:
         """Encapsulates all coordination of control according to the active policy."""
@@ -286,8 +290,9 @@ class PendulumEnvironment(Environment):
         for name, ctrl in self.controllers.items():
             reset_level = self.controller_reset_policies.get(name, 'internal_state_only')
             ctrl.reset_policy(reset_level)
-        self.agent.reset_agent()
-        self.reward_function.reset()
+        # Agent and RewardFunction reset handled externally or by SimManager/EnvironmentManager if needed
+        # self.agent.reset_agent() -> Removed
+        # self.reward_function.reset() -> Removed
         # Reset metric tracking
         self.prev_error = 0.0
         self.integral_error = 0.0
@@ -297,15 +302,25 @@ class PendulumEnvironment(Environment):
         logger.debug(f"[PendulumEnvironment:reset] Initial state after reset: {np.round(self.current_episode_state, 4)}")
         return np.copy(self.current_episode_state)
 
-    def check_termination(self) -> Tuple[bool, bool, bool]:
-        state_vec = self.current_episode_state
-        state_dict = self._create_state_dict(state_vec)
+    # Removed check_termination in favor of internal check called in step
+    # but keeping helper unique to this env
+    def _check_termination_conditions(self, state_dict: Dict[str, float]) -> Tuple[bool, bool]:
         angle_exceeded = self.use_angle_lim and (abs(state_dict['pendulum_angle']) > self.angle_lim_rad)
         cart_exceeded = self.use_cart_pos_lim and (abs(state_dict['cart_position']) > self.cart_pos_lim_m)
         limit_exceeded_flag = angle_exceeded or cart_exceeded
         goal_reached_flag = self._evaluate_if_state_is_goal(state_dict)
-        agent_requested_termination = self.agent.should_episode_terminate_early()
-        return limit_exceeded_flag, goal_reached_flag, agent_requested_termination
+        return limit_exceeded_flag, goal_reached_flag
+
+    def check_termination(self) -> Tuple[bool, bool, bool]:
+        # DEPRECATED method, kept only if interface demands it, but we removed it from call chain.
+        # But we must satisfy abstract method if it still exists.
+        # Interface update kept it? No, I viewed it but maybe I should have removed it from Interface too?
+        # Re-checking Interface...
+        # If I didn't remove it from Environment(ABC), I must implement it.
+        # Let's assume I need to satisfy ABC.
+        limit, goal = self._check_termination_conditions(self._create_state_dict(self.current_episode_state))
+        return limit, goal, False
+
 
     def _evaluate_if_state_is_goal(self, state_to_evaluate: Dict[str, float]) -> bool:
         angle_val = state_to_evaluate['pendulum_angle']
@@ -320,10 +335,8 @@ class PendulumEnvironment(Environment):
             return angle_stable and ang_vel_stable and cart_pos_stable and cart_vel_stable
         return angle_stable and ang_vel_stable
 
-    def update_reward_and_stability_calculator_stats(self, episode_metrics_log_dict: Dict, episode_idx_completed: int):
-        self.reward_function.update_calculator_stats(episode_metrics_log_dict, episode_idx_completed)
-        if hasattr(self.stability_calculator, 'update_reference_stats'):
-            self.stability_calculator.update_reference_stats(episode_metrics_log_dict, episode_idx_completed)
+    # Removed update_reward_and_stability_calculator_stats
+
 
     def get_params_log(self) -> Dict[str, Any]:
         """Expose internal environment parameters for logging."""

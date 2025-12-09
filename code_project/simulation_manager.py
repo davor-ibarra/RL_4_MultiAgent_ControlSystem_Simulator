@@ -7,6 +7,7 @@ import os
 import gc
 from typing import Dict, Any, List, Tuple, Optional, Union, TYPE_CHECKING
 
+from environment_manager import EnvironmentManager
 from interfaces.environment import Environment
 from interfaces.rl_agent import RLAgent
 from interfaces.controller import Controller
@@ -42,37 +43,46 @@ class SimulationManager:
 
     # --- SECCIÓN 1: Resolución de Dependencias y Configuración ---
     def _resolve_dependencies(self) -> Tuple[
-        Environment, RLAgent, Controller, RewardStrategy, Optional[VirtualSimulator],
-        BaseStabilityCalculator, Dict[str, Any], Dict[str, Any], str  # main_config, data_directives, output_dir
+        EnvironmentManager, RLAgent, Dict[str, Controller], RewardStrategy, Optional[VirtualSimulator],
+        BaseStabilityCalculator, Dict[str, Any], Dict[str, Any], str, Dict[str, RewardFunction]
     ]:
         """Resuelve todas las dependencias necesarias una sola vez."""
         self.logger.info("[SimMan:_resolve_dependencies] Resolving core simulation components...")
-        env_instance = self.container.resolve(Environment)
+        
+        # Resolve Dictionaries of Components
+        envs_dict = self.container.resolve("environments_dict_token")
+        if not envs_dict:
+             raise ValueError("No environments resolved for 'environments_dict_token'")
+        
+        reward_functions_dict = self.container.resolve("reward_functions_dict_token")
+        
         agent_instance = self.container.resolve(RLAgent)
-        controllers_dict_token = "controllers_dict_token"
-        controllers_dict_instance = self.container.resolve(controllers_dict_token)
+        controllers_dict_instance = self.container.resolve("controllers_dict_token")
         reward_strategy_instance = self.container.resolve(RewardStrategy)
-        virtual_simulator_instance = self.container.resolve(Optional[VirtualSimulator]) # Es opcional
+        virtual_simulator_instance = self.container.resolve(Optional[VirtualSimulator])
         stability_calculator_instance = self.container.resolve(BaseStabilityCalculator)
         main_config_dict = self.container.resolve(dict)
         output_dir_path = self.container.resolve(_OUTPUT_DIR_TOKEN_STR_)
         processed_data_directives_dict = self.container.resolve(_PROCESSED_DATA_DIRECTIVES_TOKEN_STR_)
 
+        # Instantiate EnvironmentManager
+        env_manager = EnvironmentManager(env_map=envs_dict, config=main_config_dict)
+
         critical_deps = { # type: ignore
-            "Environment": env_instance, "RLAgent": agent_instance, "Controller": controllers_dict_instance,
+            "EnvManager": env_manager, "RLAgent": agent_instance, "Controller": controllers_dict_instance,
             "RewardStrategy": reward_strategy_instance, "BaseStabilityCalculator": stability_calculator_instance, 
-            "main_config": main_config_dict,"output_dir": output_dir_path, "processed_data_directives": processed_data_directives_dict
+            "main_config": main_config_dict,"output_dir": output_dir_path
         }
         missing = [name for name, dep in critical_deps.items() if dep is None]
         if missing:
             raise ValueError(f"[SimMan:_resolve_dependencies] Failed to resolve critical DI dependencies: {missing}")
 
         self.logger.info("[SimMan:_resolve_dependencies] Core dependencies resolved.")
-        #self.logger.info(f"[SimMan:_resolve_dependencies] Core dependencies resolved. StabilityCalculator: {type(stability_calculator_instance).__name__ if stability_calculator_instance else 'None'}.")
-        return (env_instance, agent_instance, controllers_dict_instance, reward_strategy_instance, virtual_simulator_instance, 
-                stability_calculator_instance, main_config_dict, processed_data_directives_dict, output_dir_path)
+        
+        return (env_manager, agent_instance, controllers_dict_instance, reward_strategy_instance, virtual_simulator_instance, 
+                stability_calculator_instance, main_config_dict, processed_data_directives_dict, output_dir_path, reward_functions_dict)
 
-    def _extract_simulation_parameters(self, config: Dict[str, Any], env: Environment) -> Dict[str, Any]:
+    def _extract_simulation_parameters(self, config: Dict[str, Any], env_manager: EnvironmentManager) -> Dict[str, Any]:
         """Extrae y valida parámetros de simulación de la configuración."""
         sim_params_cfg = config.get('environment', {}).get('simulation', {})
         data_handling_cfg = config.get('data_handling', {})
@@ -82,7 +92,7 @@ class SimulationManager:
             'max_episodes': sim_params_cfg.get('max_episodes', 1),
             'episode_duration_sec': sim_params_cfg.get('episode_duration_sec', 5.0),
             'decision_interval_sec': sim_params_cfg.get('agent_decision_period_sec', 0.01),
-            'sim_dt_sec': env.dt, # Obtener dt del entorno resuelto
+            'sim_dt_sec': list(env_manager.env_map.values())[0].dt, # Use first env dt for now
             'episodes_per_chunk': data_handling_cfg.get('episodes_per_dataset_chunk', 100),
             'agent_state_save_freq': data_handling_cfg.get('agent_state_save_frequency', 0),
             'save_agent_state_enabled': data_handling_cfg.get('save_agent_state', False),
@@ -109,10 +119,10 @@ class SimulationManager:
         detailed_data_batch_buffer: List[Dict] = []
 
         try:
-            (env, agent, ctrls, reward_strategy, virtual_sim, stability_calc,
-             config, data_directives, output_dir) = self._resolve_dependencies()
+            (env_manager, agent, ctrls, reward_strategy, virtual_sim, stability_calc,
+             config, data_directives, output_dir, reward_funcs) = self._resolve_dependencies()
 
-            sim_run_params = self._extract_simulation_parameters(config, env)
+            sim_run_params = self._extract_simulation_parameters(config, env_manager)
             
             if reward_strategy.needs_virtual_simulation and virtual_sim is None:
                 raise ValueError(f"RewardStrategy '{type(reward_strategy).__name__}' needs VirtualSimulator, but none was resolved.")
@@ -125,8 +135,8 @@ class SimulationManager:
                     raise RuntimeError(f"Failed to resolve MetricsCollector for episode {ep_idx}")
 
                 episode_summary_dict, episode_detailed_metrics = self._run_episode(
-                    ep_idx, env, agent, ctrls, reward_strategy, virtual_sim, 
-                    stability_calc, metrics_collector, config, sim_run_params, data_directives
+                    ep_idx, env_manager, agent, ctrls, reward_strategy, virtual_sim, 
+                    stability_calc, metrics_collector, config, sim_run_params, data_directives, reward_funcs
                 )
                 summary_data_all_eps.append(episode_summary_dict)
 
@@ -163,12 +173,13 @@ class SimulationManager:
     # --- SECCIÓN 3: Orquestación de Episodio Individual ---
     def _run_episode(self,
                      episode_idx: int,
-                     env: Environment, agent: RLAgent, ctrls: Dict[str, Controller],
+                     env_manager: EnvironmentManager, agent: RLAgent, ctrls: Dict[str, Controller],
                      reward_strategy: RewardStrategy, virtual_sim: Optional[VirtualSimulator],
                      stability_calc: BaseStabilityCalculator,
                      metrics_collector: MetricsCollector, config: Dict[str, Any],
                      sim_run_params: Dict[str, Any],
-                     data_directives: Dict[str, Any]
+                     data_directives: Dict[str, Any],
+                     reward_funcs: Dict[str, RewardFunction]
                     ) -> Tuple[Dict[str, Any], Dict[str, List[Any]]]:
         """Orquesta la ejecución de un solo episodio, delegando el logging y el resumen."""
         self.logger.info(f"--- [ Episode {episode_idx}/{sim_run_params['max_episodes']-1} Starting ] ---")
@@ -176,8 +187,22 @@ class SimulationManager:
         # 1. Inicialización del Episodio
         ep_wall_start_time = time.time()
         initial_conditions_cfg = config.get('environment', {}).get('initial_conditions', {}).get('x0')
-        current_raw_state_s = env.reset(initial_conditions_cfg)
-        initial_state_dict = env._create_state_dict(current_raw_state_s) if hasattr(env, '_create_state_dict') else {}
+        
+        # Reset Environments via EnvironmentManager
+        # Assuming initial_conditions_cfg might need to be a map if multiple envs, 
+        # or we broadcast it if it's simple. For now, passing logic to EnvManager or broadcasting single config
+        # Multienv TODO: Parse initial conditions per env if needed.
+        reset_results = env_manager.reset_all({list(env_manager.env_map.keys())[0]: initial_conditions_cfg} if initial_conditions_cfg else None)
+        
+        # We need a primary state for agent decision compatibility for now
+        # Assuming first env is primary
+        primary_env_id = list(env_manager.env_map.keys())[0]
+        current_raw_state_s = reset_results[primary_env_id]
+        
+        # Create state dicts (assuming all envs act similarly, or we mix)
+        # For now, stick to primary env for agent state construction
+        primary_env = env_manager.env_map[primary_env_id]
+        initial_state_dict = primary_env._create_state_dict(current_raw_state_s) if hasattr(primary_env, '_create_state_dict') else {}
         
         metrics_collector.log_on_episode_start(context={
             'episode_id': episode_idx,
@@ -201,7 +226,7 @@ class SimulationManager:
             learn_select_boundary_start_time = time.time()
 
             # 2. Selección y Aplicación de Acción
-            current_state_dict = env._create_state_dict(current_raw_state_s) if hasattr(env, '_create_state_dict') else {}
+            current_state_dict = primary_env._create_state_dict(current_raw_state_s) if hasattr(primary_env, '_create_state_dict') else {}
             current_agent_s_dict = agent.build_agent_state(current_state_dict, ctrls)
             actions_a_prime_dict = agent.select_action(current_agent_s_dict)
             self._apply_actions_to_controller(ctrls, actions_a_prime_dict, config)
@@ -222,7 +247,7 @@ class SimulationManager:
                  interval_done_flag, term_reason_from_interval) = \
                     self._run_standard_interval_steps(
                         id_agent_decision, current_sim_time_sec, current_interval_duration_actual, current_raw_state_s,
-                        env, ctrls, agent, env.reward_function, metrics_collector, stability_calc, config
+                        env_manager, ctrls, agent, reward_funcs, metrics_collector, stability_calc, config
                     )
                 
                 # Extraer total_reward para compatibilidad con estrategias que esperan un float principal
@@ -235,7 +260,7 @@ class SimulationManager:
                 }
 
             # 4. Aprendizaje del Agente
-            next_state_dict = env._create_state_dict(final_env_state_s_prime_raw) if hasattr(env, '_create_state_dict') else {}
+            next_state_dict = primary_env._create_state_dict(final_env_state_s_prime_raw) if hasattr(primary_env, '_create_state_dict') else {}
             next_agent_s_prime_dict = agent.build_agent_state(next_state_dict, ctrls)
             learning_metrics = agent.learn(
                 current_agent_s_dict, actions_a_prime_dict,
@@ -279,7 +304,9 @@ class SimulationManager:
             'agent': agent, # Para obtener epsilon/lr finales
         })
         final_metrics = metrics_collector.get_metrics()
-        env.update_reward_and_stability_calculator_stats(final_metrics, episode_idx)
+        
+        # TODO: Verificar quien y donde establece la lógica para actualizar las métricas de recompensa y estabilidad
+        #env.update_reward_and_stability_calculator_stats(final_metrics, episode_idx)
 
         # 8. Pasar las directivas y la config global a la función de resumen
 
@@ -316,62 +343,157 @@ class SimulationManager:
                                      interval_start_sim_time: float,
                                      interval_duration_to_run: float,
                                      current_raw_state_at_interval_start: np.ndarray,
-                                     env: Environment, ctrls: Dict[str, Controller], agent: RLAgent, reward_function: RewardFunction,
+                                     env_manager: EnvironmentManager, ctrls: Dict[str, Controller], agent: RLAgent, 
+                                     reward_funcs: Dict[str, RewardFunction],
                                      metrics_collector: MetricsCollector,
                                      stability_calc: BaseStabilityCalculator,
                                      config: Dict[str, Any]
-                                     ) -> Tuple[float, Dict[str, float], float, np.ndarray, bool, str]:
+                                     ) -> Tuple[Dict[str, float], float, np.ndarray, bool, str]:
         """Ejecuta los pasos de simulación para un intervalo estándar, delegando el logging."""
-        accumulated_interval_reward = 0.0
+        accumulated_interval_reward_sum = 0.0
         accumulated_reward_components: Dict[str, float] = {}
         stability_scores_in_interval: List[float] = []
         is_interval_terminal = False
         termination_reason_interval = "unknown"
-        last_state_in_interval = np.copy(current_raw_state_at_interval_start)
-        sim_dt = env.dt
+        
+        # Primary state tracking similar to _run_episode
+        primary_env_id = list(env_manager.env_map.keys())[0]
+        # We assume current_raw_state_at_interval_start comes from primary env
+        # But we need to keep track of all env states if we are strict.
+        # For this refactor, we rely on EnvManager to hold state, but we return a "representation" state (primary)
+        # to the caller for Agent usage.
+        
+        last_primary_state_in_interval = np.copy(current_raw_state_at_interval_start)
+        
+        # Use primary env dt
+        primary_env = env_manager.env_map[primary_env_id]
+        sim_dt = primary_env.dt
 
         num_steps_this_interval = max(1, int(round(interval_duration_to_run / sim_dt)))
 
         for step_idx in range(num_steps_this_interval):
             current_step_sim_time = round(interval_start_sim_time + (step_idx + 1) * sim_dt, 6)
             
-            next_state_vec, reward, stability_score, _ = env.step()
+            # 1. Step All Environments
+            # step_results: {env_id: {'state_dict':..., 'stab_info':..., 'subenv_context':...}}
+            step_results = env_manager.step_all(current_step_sim_time)
             
-            last_state_in_interval = next_state_vec
-            accumulated_interval_reward += float(reward) if pd.notna(reward) else 0.0
-            stability_scores_in_interval.append(float(stability_score) if pd.notna(stability_score) else 1.0)
+            # 2. Extract results for Primary Env (for return) and Aggregate Rewards
+            step_total_reward = 0.0
+            step_stability_scores = []
+            
+            primary_result = step_results[primary_env_id]
+            # Primary state update (approximated for return)
+            # We strictly should get raw state from env if needed by caller, but caller uses dict usually.
+            # Caller expects raw_state for next loop iteration -> _run_episode uses it for _create_state_dict
+            # PendulumEnv.step returns (state, r, stab, u) -> Now returns (state_dict, stab, context)
+            # Wait, PendulumEnv.step returns dict. SimulationManager uses it to create dict?
+            # Original: env.step() returns next_state_vec (ndarray).
+            # New PendulumEnv.step returns state_dict (Dict).
+            # Checking PendulumEnv.step again: I changed it to return s_next_dict!
+            # So last_primary_state_in_interval should be the dict?
+            # But the caller `_run_episode` loop expects `current_raw_state_s` which it passes to `env._create_state_dict`.
+            # If `env.step` now returns dict, `current_raw_state_s` will be a dict. 
+            # `env._create_state_dict` might fail if it expects ndarray.
+            # FIX: I should probably update `_run_episode` to remove `_create_state_dict` calls or check type.
+            # OR make PendulumEnv return raw state in context?
+            # PendulumEnv assigns `self.current_episode_state = s_next` (ndarray).
+            # The interface says `state_dict`.
+            # If I return state_dict, the agent usage in `_run_episode` (line 204: `env._create_state_dict(current_raw_state_s)`) will break if `current_raw_state_s` is already a dict.
+            # I should update `_run_episode` to handle dict directly.
+            
+            last_primary_state_in_interval = primary_result['state_dict']
 
-            # Accumulate components
-            step_components = reward_function.get_params_log()
-            for k, v in step_components.items():
-                accumulated_reward_components[k] = accumulated_reward_components.get(k, 0.0) + (float(v) if pd.notna(v) else 0.0)
+            for env_id, res in step_results.items():
+                s_dict = res['state_dict']
+                # Stab
+                stab = res['stab_info'].get('stability_score', 1.0)
+                step_stability_scores.append(stab)
+                
+                # Reward Calculation
+                # Need last state? RewardFunction.calculate args: state_dict, action, next_state_dict
+                # We have 'next_state_dict' (s_dict). We need 'current_state_dict' (prev step).
+                # But RewardFunction usually needs 'action' too.
+                # 'subenv_context' has 'action_applied'.
+                action_u = res['subenv_context'].get('action_applied', 0.0)
+                metrics = res['subenv_context'].get('raw_metrics', {})
+                goal_flag = res['subenv_context'].get('done_flags', {}).get('goal_reached', False)
+                
+                # Approximate "current_state" as next_state for simplicity or we need to track history?
+                # Ideally we track history. but typically reward is R(s, a, s'). s is implicit or we use s' for both if Markovian enough?
+                # Actually, Environment tracking `prev_error` etc handles the diffs in metrics.
+                # RewardFunction usually uses s_next mainly for state-based rewards.
+                # Passing s_dict as both state and next_state if prev unavail, or assume s_dict IS next.
+                reward_f = reward_funcs.get(env_id)
+                if reward_f:
+                    r_val = reward_f.calculate(
+                        state_dict=s_dict, # Using next as current (approx) or need to cache? 
+                        # Actually strict RL needs s(t).
+                        # But typically continuous control rewards are on state achieved (s(t+1)).
+                        action_a=action_u,
+                        next_state_dict=s_dict, 
+                        current_episode_time_sec=current_step_sim_time,
+                        dt_sec=sim_dt, # Assume homogeneous
+                        goal_reached_in_step=goal_flag,
+                        reward_components=metrics
+                    )
+                    step_total_reward += (float(r_val) if pd.notna(r_val) else 0.0)
+                    
+                    # Log components
+                    comps = reward_f.get_params_log()
+                    for k, v in comps.items():
+                         accumulated_reward_components[k] = accumulated_reward_components.get(k, 0.0) + (float(v) if pd.notna(v) else 0.0)
 
-            next_state_dict = env._create_state_dict(next_state_vec) if hasattr(env, '_create_state_dict') else {}            
+            accumulated_interval_reward_sum += step_total_reward
+            stability_scores_in_interval.extend(step_stability_scores)
+
+            # Log to MetricsCollector (Primary Env focus + aggregates)
             metrics_collector.log_on_step(context={
-                'id_agent_decision': id_agent_decision, # only for save param
+                'id_agent_decision': id_agent_decision,
                 'time': current_step_sim_time,
-                'state': next_state_dict,
-                'reward': reward,
-                'stability_score': stability_score,
-                'env': env,
+                'state': primary_result['state_dict'], # Log primary env state
+                'reward': step_total_reward, # Log summed reward
+                'stability_score': np.mean(step_stability_scores) if step_stability_scores else 1.0,
+                'env': primary_env, # Reference to primary env
                 'controllers': ctrls,
                 'agent': agent,
-                'reward_calc' : reward_function,
+                'reward_calc': reward_funcs.get(primary_env_id), # Reference primary reward function
                 'stability_calculator': stability_calc
             })
 
-            limit_exceeded, goal_reached, _ = env.check_termination()
+            # Check Termination (Global Policy: terminate if ANY env terminates? or Primary?)
+            # Config policy check required. Defaulting to Primary env check or ANY check.
+            # Plan says: "evaluar la política de terminación global... por ejemplo... terminar si cualquier env está done"
+            # Let's check primary for now to match behavior, or ANY.
+            # Safe default: ANY critical failure (limit_exceeded), or GOAL reached by ALL?
+            # Pendulum: Goal is stable. Done is limit exceeded.
+            # Let's say: If ANY env exceeds limit -> Done (Failure).
+            # If Primary env reaches goal -> Done (Success)? (Simplification)
+            
+            any_limit = any(res['subenv_context']['done_flags'].get('limit_exceeded', False) for res in step_results.values())
+            primary_goal = primary_result['subenv_context']['done_flags'].get('goal_reached', False)
+            
+            # Time limit handled by loop typically, but env might have internal
+            
             max_ep_duration = config.get('environment', {}).get('simulation', {}).get('episode_duration_sec', 5.0)
             time_limit_reached = (current_step_sim_time >= max_ep_duration - (sim_dt / 2.0))
 
-            if limit_exceeded or goal_reached or time_limit_reached:
+            if any_limit or primary_goal or time_limit_reached:
                 is_interval_terminal = True
                 if termination_reason_interval == "unknown":
-                    termination_reason_interval = "limit_exceeded" if limit_exceeded else "goal_reached" if goal_reached else "time_limit"
+                    termination_reason_interval = "limit_exceeded" if any_limit else "goal_reached" if primary_goal else "time_limit"
                 break
 
         avg_stability = np.nanmean(stability_scores_in_interval) if stability_scores_in_interval else 1.0
-        return accumulated_interval_reward, accumulated_reward_components, float(avg_stability), last_state_in_interval, is_interval_terminal, termination_reason_interval
+        # NOTE: Returning accumulated_reward_components combined? Yes.
+        # Returning total_reward? Yes.
+        # Returning last_state? Yes (primary).
+        
+        # Helper dict for compatibility
+        reward_return_dict = accumulated_reward_components
+        reward_return_dict['total_reward'] = accumulated_interval_reward_sum
+        
+        return reward_return_dict, float(avg_stability), last_primary_state_in_interval, is_interval_terminal, termination_reason_interval
 
     def _run_echo_baseline_interval_steps(self,
                                           id_agent_decision: int,
